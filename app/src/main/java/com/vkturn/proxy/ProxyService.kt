@@ -97,7 +97,7 @@ class ProxyService : Service() {
             val wgInterfaceBuilder = Interface.Builder()
                 .addAddress(com.wireguard.config.InetNetwork.parse(localIp))
                 val key = Key.fromBase64(privKey)
-                wgInterfaceBuilder.setPrivateKey(key)
+                wgInterfaceBuilder.setPrivateKey(com.wireguard.crypto.Key.fromBase64(privKey))
                 .addDnsServer(InetAddress.getByName("1.1.1.1"))
 
             // Исключаем наше приложение, чтобы бинарник мог стучаться до сервера снаружи VPN
