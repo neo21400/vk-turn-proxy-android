@@ -2,19 +2,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission android:name="android.permission.BIND_VPN_SERVICE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    
+    <uses-permission android:name="android.permission.BIND_VPN_SERVICE" 
+        tools:ignore="ProtectedPermissions" />
 
     <application
         android:extractNativeLibs="true"
         android:allowBackup="true"
-        android:dataExtractionRules="@xml/data_extraction_rules"
-        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="VK TURN Proxy"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -28,20 +28,19 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-                </intent-filter>
+            </intent-filter>
         </activity>
 
-        <activity android:name=".SettingsActivity" android:exported="false" />
+        <activity 
+            android:name=".SettingsActivity" 
+            android:exported="false" 
+            android:windowSoftInputMode="adjustResize" />
 
         <service
             android:name=".ProxyService"
             android:exported="false"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:foregroundServiceType="specialUse">
-            <intent-filter>
-                <action android:name="android.net.VpnService" />
-            </intent-filter>
-        </service>
+            android:foregroundServiceType="connectedDevice">
+            </service>
 
     </application>
 </manifest>
