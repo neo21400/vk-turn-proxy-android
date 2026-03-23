@@ -83,7 +83,7 @@ class ProxyService : Service() {
         val localIp = prefs.getString("wg_local", "10.0.0.2/32") ?: "10.0.0.2/32"
 
         if (privKey.isEmpty() || pubKey.isEmpty() || endpoint.isEmpty()) {
-            addLog("ОШИБКА: Конфиг WireGuard пуст!")
+            addLog("ОШИБКА: Настройки WireGuard не заполнены!")
             return
         }
 
@@ -96,7 +96,7 @@ class ProxyService : Service() {
 
             val wgInterfaceBuilder = Interface.Builder()
                 .addAddress(com.wireguard.config.InetNetwork.parse(localIp))
-                .setPrivateKey(wgPrivateKey) // Теперь ошибка 'Unresolved reference' исчезнет
+                .setPrivateKey(wgPrivateKey) 
                 .addDnsServer(InetAddress.getByName("1.1.1.1"))
 
             val excluded = mutableSetOf(packageName)
@@ -119,10 +119,10 @@ class ProxyService : Service() {
                 .build()
 
             backend.setState(tunnel, Tunnel.State.UP, config)
-            addLog("WireGuard запущен. Трафик в туннеле.")
+            addLog("WireGuard успешно запущен.")
             
         } catch (e: Exception) {
-            addLog("КРИТИЧЕСКАЯ ОШИБКА WG: ${e.message}")
+            addLog("ОШИБКА WG: ${e.message}")
         }
     }
 
@@ -183,7 +183,7 @@ class ProxyService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 "ProxyChannel", 
-                "Сервис VPN и Прокси", 
+                "VPN Service", 
                 NotificationManager.IMPORTANCE_LOW
             )
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
@@ -191,15 +191,15 @@ class ProxyService : Service() {
     }
 
     private fun createNotification() = NotificationCompat.Builder(this, "ProxyChannel")
-        .setContentTitle("VK-Turn + WireGuard Активен")
-        .setContentText("Туннель работает в фоне")
+        .setContentTitle("VK-Turn + WG")
+        .setContentText("Сервис работает")
         .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
         .setOngoing(true)
         .build()
 
     override fun onDestroy() {
         isRunning = false
-        addLog("Остановка служб...")
+        addLog("Остановка прокси...")
         currentTunnel?.let { 
             thread { backend.setState(it, Tunnel.State.DOWN, null) }
         }
