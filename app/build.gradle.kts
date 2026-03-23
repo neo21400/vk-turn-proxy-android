@@ -5,12 +5,13 @@ plugins {
 
 android {
     namespace = "com.vkturn.proxy"
-    compileSdk = 34 
+    // Поднимаем до 36, как просит ошибка
+    compileSdk = 36 
 
     defaultConfig {
         applicationId = "com.vkturn.proxy"
         minSdk = 23
-        targetSdk = 34
+        targetSdk = 34 // Оставляем 34 для стабильного поведения на устройствах
         versionCode = 2
         versionName = "1.1.0"
         multiDexEnabled = true
