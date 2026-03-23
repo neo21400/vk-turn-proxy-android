@@ -96,7 +96,7 @@ class ProxyService : Service() {
 
             val wgInterfaceBuilder = Interface.Builder()
                 .addAddress(com.wireguard.config.InetNetwork.parse(localIp))
-                .setPrivateKey(wgPrivateKey)
+                .setPrivateKey(wgPrivateKey) // Теперь ошибка 'Unresolved reference' исчезнет
                 .addDnsServer(InetAddress.getByName("1.1.1.1"))
 
             val excluded = mutableSetOf(packageName)
@@ -119,7 +119,7 @@ class ProxyService : Service() {
                 .build()
 
             backend.setState(tunnel, Tunnel.State.UP, config)
-            addLog("WireGuard запущен успешно.")
+            addLog("WireGuard запущен. Трафик в туннеле.")
             
         } catch (e: Exception) {
             addLog("КРИТИЧЕСКАЯ ОШИБКА WG: ${e.message}")
@@ -191,8 +191,8 @@ class ProxyService : Service() {
     }
 
     private fun createNotification() = NotificationCompat.Builder(this, "ProxyChannel")
-        .setContentTitle("VK-Turn + WireGuard")
-        .setContentText("Туннель активен")
+        .setContentTitle("VK-Turn + WireGuard Активен")
+        .setContentText("Туннель работает в фоне")
         .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
         .setOngoing(true)
         .build()
