@@ -14,14 +14,12 @@ import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
 import com.wireguard.config.Interface
 import com.wireguard.config.Peer
-import com.wireguard.crypto.Key
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 import java.net.InetAddress
 import kotlin.concurrent.thread
 
-// Наследуемся от Service, так как GoBackend сам создаст свой VpnService
 class ProxyService : Service() {
 
     private val backend by lazy { GoBackend(this) }
@@ -63,14 +61,13 @@ class ProxyService : Service() {
         
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VkTurn::BgLock")
-        wakeLock?.acquire(10 * 60 * 1000L /* 10 минут таймаут для безопасности */)
+        wakeLock?.acquire(10 * 60 * 1000L)
 
         isRunning = true
 
-        // Порядок важен: сначала туннель, потом бинарник
         thread {
             startWireGuard()
-            Thread.sleep(1500) // Даем время интерфейсу подняться
+            Thread.sleep(1500)
             startBinary()
         }
 
@@ -86,7 +83,7 @@ class ProxyService : Service() {
         val localIp = prefs.getString("wg_local", "10.0.0.2/32") ?: "10.0.0.2/32"
 
         if (privKey.isEmpty() || pubKey.isEmpty() || endpoint.isEmpty()) {
-            addLog("ОШИБКА: Конфиг WireGuard пуст! Заполни настройки.")
+            addLog("ОШИБКА: Конфиг WireGuard пуст!")
             return
         }
 
@@ -94,27 +91,26 @@ class ProxyService : Service() {
             val tunnel = VkWgtunnel("vk_tunnel")
             currentTunnel = tunnel
 
+            val wgPrivateKey = com.wireguard.crypto.Key.fromBase64(privKey)
+            val wgPublicKey = com.wireguard.crypto.Key.fromBase64(pubKey)
+
             val wgInterfaceBuilder = Interface.Builder()
                 .addAddress(com.wireguard.config.InetNetwork.parse(localIp))
-                .setPrivateKey(com.wireguard.crypto.Key.fromBase64(privKey))
+                .setPrivateKey(wgPrivateKey)
                 .addDnsServer(InetAddress.getByName("1.1.1.1"))
 
-            // Исключаем наше приложение, чтобы бинарник мог стучаться до сервера снаружи VPN
             val excluded = mutableSetOf(packageName)
-            
-            // Добавляем браузеры или другие приложения, если они указаны в настройках
             val extraExcludes = prefs.getString("excluded_apps", "") ?: ""
             if (extraExcludes.isNotEmpty()) {
                 extraExcludes.split(",").forEach { excluded.add(it.trim()) }
             }
-            
             wgInterfaceBuilder.excludeApplications(excluded)
 
             val peer = Peer.Builder()
                 .addAllowedIp(com.wireguard.config.InetNetwork.parse("0.0.0.0/0"))
                 .setEndpoint(com.wireguard.config.InetEndpoint.parse(endpoint))
-                .setPublicKey(Key.fromBase64(pubKey))
-                .setPersistentKeepalive(25) // Помогает на мобильном интернете
+                .setPublicKey(wgPublicKey)
+                .setPersistentKeepalive(25)
                 .build()
 
             val config = Config.Builder()
@@ -123,7 +119,7 @@ class ProxyService : Service() {
                 .build()
 
             backend.setState(tunnel, Tunnel.State.UP, config)
-            addLog("WireGuard запущен. Трафик направлен в туннель.")
+            addLog("WireGuard запущен успешно.")
             
         } catch (e: Exception) {
             addLog("КРИТИЧЕСКАЯ ОШИБКА WG: ${e.message}")
@@ -145,13 +141,11 @@ class ProxyService : Service() {
         val link = prefs.getString("link", "") ?: ""
         val listen = prefs.getString("listen", "127.0.0.1:9000") ?: "127.0.0.1:9000"
 
-        // Сборка аргументов
         val cmd = mutableListOf<String>()
         val isRaw = prefs.getBoolean("isRaw", false)
         
         if (isRaw) {
             val rawCmd = prefs.getString("rawCmd", "") ?: ""
-            // Разрезаем строку на аргументы, учитывая кавычки
             cmd.add(executable)
             cmd.addAll(rawCmd.split(" ").filter { it.isNotEmpty() })
         } else {
@@ -162,15 +156,13 @@ class ProxyService : Service() {
             }
             if (prefs.getBoolean("udp", true)) cmd.add("-udp")
             if (prefs.getBoolean("noDtls", false)) cmd.add("-no-dtls")
-            val nThreads = prefs.getString("n", "8") ?: "8"
-            cmd.addAll(listOf("-n", nThreads))
+            cmd.addAll(listOf("-n", prefs.getString("n", "8") ?: "8"))
         }
 
         try {
             addLog("Запуск ядра: ${cmd.joinToString(" ")}")
-            
             val pb = ProcessBuilder(cmd)
-            pb.directory(filesDir) // Рабочая директория
+            pb.directory(filesDir)
             pb.redirectErrorStream(true)
             
             binaryProcess = pb.start()
@@ -199,28 +191,20 @@ class ProxyService : Service() {
     }
 
     private fun createNotification() = NotificationCompat.Builder(this, "ProxyChannel")
-        .setContentTitle("VK-Turn + WireGuard Активен")
-        .setContentText("Защищенный туннель работает в фоне")
+        .setContentTitle("VK-Turn + WireGuard")
+        .setContentText("Туннель активен")
         .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
         .setOngoing(true)
         .build()
 
     override fun onDestroy() {
         isRunning = false
-        addLog("Остановка всех служб...")
-        
-        // Гасим туннель
+        addLog("Остановка служб...")
         currentTunnel?.let { 
             thread { backend.setState(it, Tunnel.State.DOWN, null) }
         }
-        
-        // Убиваем бинарник
         binaryProcess?.destroy()
-        binaryProcess = null
-        
-        // Отпускаем батарейку
         if (wakeLock?.isHeld == true) wakeLock?.release()
-        
         super.onDestroy()
     }
 }
