@@ -5,17 +5,16 @@ plugins {
 
 android {
     namespace = "com.vkturn.proxy"
-    // Поднимаем до 36, как просит ошибка
     compileSdk = 36 
 
     defaultConfig {
         applicationId = "com.vkturn.proxy"
         minSdk = 23
-        targetSdk = 34 // Оставляем 34 для стабильного поведения на устройствах
+        targetSdk = 34
         versionCode = 2
         versionName = "1.1.0"
+        
         multiDexEnabled = true
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -38,16 +37,13 @@ android {
             )
         }
         debug {
+            // Иногда включение минимального сокращения кода помогает D8 пройти успешно
             isMinifyEnabled = false
         }
     }
 
-    lint {
-        checkReleaseBuilds = false
-        disable += "ExpiredTargetSdkVersion"
-    }
-
     compileOptions {
+        // КРИТИЧНО: включаем десугаризацию
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
@@ -55,23 +51,24 @@ android {
 
     kotlinOptions {
         jvmTarget = "1.8"
+        // Дополнительный флаг для стабильности корутин и Java-интерфейсов
+        freeCompilerArgs += listOf("-Xjvm-default=all")
     }
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    // Обновленная версия библиотеки десугаризации
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 
+    // Основные зависимости
     implementation("com.wireguard.android:tunnel:1.0.20230706")
     implementation("com.github.mwiede:jsch:0.2.17")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
+    // AndroidX библиотеки
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
-    
-    testImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
 }
