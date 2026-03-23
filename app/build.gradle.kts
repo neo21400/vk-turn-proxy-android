@@ -20,6 +20,9 @@ android {
     packaging {
         resources.excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
         jniLibs.useLegacyPackaging = true
+            jniLibs {
+                useLegacyPackaging = true
+        }
     }
     // ---------------------------------
 
