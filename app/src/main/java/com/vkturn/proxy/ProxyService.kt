@@ -91,44 +91,46 @@ class ProxyService : Service() {
             val tunnel = VkWgtunnel("vk_tunnel")
             currentTunnel = tunnel
 
-            val wgPriv: com.wireguard.crypto.Key = com.wireguard.crypto.Key.fromBase64(privKey)
-            val wgPub: com.wireguard.crypto.Key = com.wireguard.crypto.Key.fromBase64(pubKey)
+            val interfaceBuilder = com.wireguard.config.Interface.Builder()
+            
+            interfaceBuilder.addAddress(com.wireguard.config.InetNetwork.parse(localIp))
+            
+            val privateKey = com.wireguard.crypto.Key.fromBase64(privKey)
+            interfaceBuilder.setPrivateKey(privateKey)
+            
+            interfaceBuilder.addDnsServer(java.net.InetAddress.getByName("1.1.1.1"))
 
-            val wgInterface = com.wireguard.config.Interface.Builder()
-                .addAddress(com.wireguard.config.InetNetwork.parse(localIp))
-                .setPrivateKey(wgPriv) 
-                .addDnsServer(java.net.InetAddress.getByName("1.1.1.1"))
-                .apply {
-                    val excluded = mutableSetOf(packageName)
-                    val extraExcludes = prefs.getString("excluded_apps", "") ?: ""
-                    if (extraExcludes.isNotEmpty()) {
-                        extraExcludes.split(",").forEach { excluded.add(it.trim()) }
-                    }
-                    excludeApplications(excluded)
-                }
-                .build()
+            val excludedApps = mutableSetOf(packageName)
+            val extraExcludes = prefs.getString("excluded_apps", "") ?: ""
+            if (extraExcludes.isNotEmpty()) {
+                extraExcludes.split(",").forEach { excludedApps.add(it.trim()) }
+            }
+            interfaceBuilder.excludeApplications(excludedApps)
 
-            val peer = com.wireguard.config.Peer.Builder()
-                .addAllowedIp(com.wireguard.config.InetNetwork.parse("0.0.0.0/0"))
-                .setEndpoint(com.wireguard.config.InetEndpoint.parse(endpoint))
-                .setPublicKey(wgPub)
-                .setPersistentKeepalive(25)
-                .build()
+            val wgInterface = interfaceBuilder.build()
+            
+            val peerBuilder = com.wireguard.config.Peer.Builder()
+            peerBuilder.addAllowedIp(com.wireguard.config.InetNetwork.parse("0.0.0.0/0"))
+            peerBuilder.setEndpoint(com.wireguard.config.InetEndpoint.parse(endpoint))
+            peerBuilder.setPublicKey(com.wireguard.crypto.Key.fromBase64(pubKey))
+            peerBuilder.setPersistentKeepalive(25)
+            
+            val wgPeer = peerBuilder.build()
 
             val config = com.wireguard.config.Config.Builder()
                 .setInterface(wgInterface)
-                .addPeer(peer)
+                .addPeer(wgPeer)
                 .build()
 
             backend.setState(tunnel, com.wireguard.android.backend.Tunnel.State.UP, config)
-            addLog("WireGuard запущен. Трафик в туннеле.")
+            addLog("WireGuard запущен успешно.")
             
         } catch (e: Exception) {
             addLog("КРИТИЧЕСКАЯ ОШИБКА WG: ${e.message}")
-            e.printStackTrace()
+            e.printStackTrace() 
         }
     }
-
+    
     private fun startBinary() {
         val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
         
