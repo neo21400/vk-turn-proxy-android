@@ -83,7 +83,7 @@ class ProxyService : Service() {
         val localIp = prefs.getString("wg_local", "10.0.0.2/32") ?: "10.0.0.2/32"
 
         if (privKey.isEmpty() || pubKey.isEmpty() || endpoint.isEmpty()) {
-            addLog("ОШИБКА: Настройки WireGuard не заполнены!")
+            addLog("ОШИБКА: Конфиг WireGuard пуст!")
             return
         }
 
@@ -91,13 +91,13 @@ class ProxyService : Service() {
             val tunnel = VkWgtunnel("vk_tunnel")
             currentTunnel = tunnel
 
-            val wgPrivateKey = com.wireguard.crypto.Key.fromBase64(privKey)
-            val wgPublicKey = com.wireguard.crypto.Key.fromBase64(pubKey)
+            val privateKeyObj = com.wireguard.crypto.Key.fromBase64(privKey)
+            val publicKeyObj = com.wireguard.crypto.Key.fromBase64(pubKey)
 
-            val wgInterfaceBuilder = Interface.Builder()
+            val wgInterfaceBuilder = com.wireguard.config.Interface.Builder()
                 .addAddress(com.wireguard.config.InetNetwork.parse(localIp))
-                .setPrivateKey(wgPrivateKey) 
-                .addDnsServer(InetAddress.getByName("1.1.1.1"))
+                .setPrivateKey(privateKeyObj) 
+                .addDnsServer(java.net.InetAddress.getByName("1.1.1.1"))
 
             val excluded = mutableSetOf(packageName)
             val extraExcludes = prefs.getString("excluded_apps", "") ?: ""
@@ -106,23 +106,24 @@ class ProxyService : Service() {
             }
             wgInterfaceBuilder.excludeApplications(excluded)
 
-            val peer = Peer.Builder()
+            val peer = com.wireguard.config.Peer.Builder()
                 .addAllowedIp(com.wireguard.config.InetNetwork.parse("0.0.0.0/0"))
                 .setEndpoint(com.wireguard.config.InetEndpoint.parse(endpoint))
-                .setPublicKey(wgPublicKey)
+                .setPublicKey(publicKeyObj)
                 .setPersistentKeepalive(25)
                 .build()
 
-            val config = Config.Builder()
+            val config = com.wireguard.config.Config.Builder()
                 .setInterface(wgInterfaceBuilder.build())
                 .addPeer(peer)
                 .build()
 
-            backend.setState(tunnel, Tunnel.State.UP, config)
-            addLog("WireGuard успешно запущен.")
+            backend.setState(tunnel, com.wireguard.android.backend.Tunnel.State.UP, config)
+            addLog("WireGuard запущен. Трафик в туннеле.")
             
         } catch (e: Exception) {
-            addLog("ОШИБКА WG: ${e.message}")
+            addLog("КРИТИЧЕСКАЯ ОШИБКА WG: ${e.message}")
+            e.printStackTrace()
         }
     }
 
