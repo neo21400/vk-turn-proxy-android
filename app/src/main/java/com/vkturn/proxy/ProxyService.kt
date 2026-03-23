@@ -96,7 +96,8 @@ class ProxyService : Service() {
 
             val wgInterfaceBuilder = Interface.Builder()
                 .addAddress(com.wireguard.config.InetNetwork.parse(localIp))
-                .setPrivateKey(Key.fromBase64(privKey))
+                val key = Key.fromBase64(privKey)
+                wgInterfaceBuilder.setPrivateKey(key)
                 .addDnsServer(InetAddress.getByName("1.1.1.1"))
 
             // Исключаем наше приложение, чтобы бинарник мог стучаться до сервера снаружи VPN
@@ -177,7 +178,7 @@ class ProxyService : Service() {
             
             val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
             thread {
-                var line: String?
+                var line: String? = null
                 while (isRunning && reader.readLine().also { line = it } != null) {
                     addLog("CORE: $line")
                 }
