@@ -51,9 +51,9 @@ android {
 
 dependencies {
     // SSH и Корутины
+    implementation("com.wireguard.android:tunnel:1.0.20230706")
     implementation("com.github.mwiede:jsch:0.2.17")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    implementation("com.wireguard.android:wireguard-android:1.1.0")
 
     // Стандартные библиотеки Android
     implementation(libs.androidx.core.ktx)
