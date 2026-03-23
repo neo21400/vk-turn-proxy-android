@@ -91,30 +91,32 @@ class ProxyService : Service() {
             val tunnel = VkWgtunnel("vk_tunnel")
             currentTunnel = tunnel
 
-            val privateKeyObj = com.wireguard.crypto.Key.fromBase64(privKey)
-            val publicKeyObj = com.wireguard.crypto.Key.fromBase64(pubKey)
+            val wgPriv: com.wireguard.crypto.Key = com.wireguard.crypto.Key.fromBase64(privKey)
+            val wgPub: com.wireguard.crypto.Key = com.wireguard.crypto.Key.fromBase64(pubKey)
 
-            val wgInterfaceBuilder = com.wireguard.config.Interface.Builder()
+            val wgInterface = com.wireguard.config.Interface.Builder()
                 .addAddress(com.wireguard.config.InetNetwork.parse(localIp))
-                .setPrivateKey(privateKeyObj) 
+                .setPrivateKey(wgPriv) 
                 .addDnsServer(java.net.InetAddress.getByName("1.1.1.1"))
-
-            val excluded = mutableSetOf(packageName)
-            val extraExcludes = prefs.getString("excluded_apps", "") ?: ""
-            if (extraExcludes.isNotEmpty()) {
-                extraExcludes.split(",").forEach { excluded.add(it.trim()) }
-            }
-            wgInterfaceBuilder.excludeApplications(excluded)
+                .apply {
+                    val excluded = mutableSetOf(packageName)
+                    val extraExcludes = prefs.getString("excluded_apps", "") ?: ""
+                    if (extraExcludes.isNotEmpty()) {
+                        extraExcludes.split(",").forEach { excluded.add(it.trim()) }
+                    }
+                    excludeApplications(excluded)
+                }
+                .build()
 
             val peer = com.wireguard.config.Peer.Builder()
                 .addAllowedIp(com.wireguard.config.InetNetwork.parse("0.0.0.0/0"))
                 .setEndpoint(com.wireguard.config.InetEndpoint.parse(endpoint))
-                .setPublicKey(publicKeyObj)
+                .setPublicKey(wgPub)
                 .setPersistentKeepalive(25)
                 .build()
 
             val config = com.wireguard.config.Config.Builder()
-                .setInterface(wgInterfaceBuilder.build())
+                .setInterface(wgInterface)
                 .addPeer(peer)
                 .build()
 
