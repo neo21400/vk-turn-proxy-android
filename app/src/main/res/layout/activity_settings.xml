@@ -25,6 +25,51 @@
         <EditText android:id="@+id/editProxyConnect" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:hint="Connect (напр. 127.0.0.1:40537)" android:textColor="#FFFFFF" android:textColorHint="#757575" android:backgroundTint="#455A64" android:textSize="12sp"/>
     </LinearLayout>
 
+    <TextView 
+    android:layout_width="wrap_content" 
+    android:layout_height="wrap_content" 
+    android:text="Настройки WireGuard" 
+    android:textColor="#FFFFFF" 
+    android:textSize="14sp" 
+    android:textStyle="bold" 
+    android:layout_marginTop="12dp" 
+    android:layout_marginBottom="4dp"/>
+
+    <Button 
+    android:id="@+id/btnImportWg" 
+    android:layout_width="match_parent" 
+    android:layout_height="wrap_content" 
+    android:text="ЗАГРУЗИТЬ .CONF ФАЙЛ" 
+    android:backgroundTint="#00796B"
+    android:layout_marginBottom="8dp"/>
+
+    <EditText 
+    android:id="@+id/editWgPriv" 
+    android:layout_width="match_parent" 
+    android:layout_height="wrap_content" 
+    android:hint="Private Key (Client)" 
+    android:textColor="#FFFFFF" 
+    android:backgroundTint="#455A64" 
+    android:textSize="12sp"/>
+
+    <EditText 
+    android:id="@+id/editWgPub" 
+    android:layout_width="match_parent" 
+    android:layout_height="wrap_content" 
+    android:hint="Public Key (Server)" 
+    android:textColor="#FFFFFF" 
+    android:backgroundTint="#455A64" 
+    android:textSize="12sp"/>
+
+    <EditText 
+    android:id="@+id/editWgEnd" 
+    android:layout_width="match_parent" 
+    android:layout_height="wrap_content" 
+    android:hint="Endpoint (IP:Port)" 
+    android:textColor="#FFFFFF" 
+    android:backgroundTint="#455A64" 
+    android:textSize="12sp"/>
+    
     <Button android:id="@+id/btnConnectSsh" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="ПОДКЛЮЧИТЬСЯ И ОТКРЫТЬ ТЕРМИНАЛ" android:backgroundTint="#F57C00" android:layout_marginTop="8dp"/>
 
     <Button android:id="@+id/btnInstallServer" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="УСТАНОВИТЬ / ОБНОВИТЬ VK-TURN-PROXY" android:backgroundTint="#2E7D32" android:enabled="false" android:layout_marginTop="4dp"/>
