@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.vkturn.proxy"
-    compileSdk = 36 
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.vkturn.proxy"
@@ -13,49 +13,33 @@ android {
         targetSdk = 34
         versionCode = 2
         versionName = "1.1.0"
-        
         multiDexEnabled = true
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    }
-
-    packaging {
-        resources {
-            excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
-        jniLibs {
-            useLegacyPackaging = true
-        }
     }
 
     buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
         debug {
-            isMinifyEnabled = false
+            // Включаем это, чтобы R8 исправил ошибки D8
+            isMinifyEnabled = true 
+            // Но отключаем удаление кода, чтобы ничего не сломать
+            isShrinkResources = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 
     compileOptions {
-        isCoreLibraryDesugaringEnabled = false
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "11"
     }
 }
 
 dependencies {
-    //coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-
-    implementation("com.wireguard.android:tunnel:1.0.20230706")
+    // Используем эту версию
+    implementation("com.wireguard.android:wireguard-android:1.1.0")
+    
     implementation("com.github.mwiede:jsch:0.2.17")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
