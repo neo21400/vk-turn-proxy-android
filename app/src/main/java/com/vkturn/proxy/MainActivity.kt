@@ -18,6 +18,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.FileOutputStream
+import android.net.VpnService
 
 class MainActivity : AppCompatActivity() {
 
@@ -119,17 +120,17 @@ class MainActivity : AppCompatActivity() {
             tvLogs.text = "Консоль очищена."
         }
 
-        // --- ДОБАВЛЕННЫЙ КОД ДЛЯ КНОПКИ "НАСТРОЙКИ" ---
+        // Кнопка настроек
         val btnSettings = findViewById<Button>(R.id.btnSettings)
         btnSettings.setOnClickListener {
             val intent = Intent(this, SettingsActivity::class.java)
             startActivity(intent)
         }
-        // ----------------------------------------------
 
+        // --- Основная кнопка старта/остановки ---
         btnToggle.setOnClickListener {
             if (!ProxyService.isRunning) {
-                // Сохранение перед стартом
+                // Сохранение настроек перед стартом
                 prefs.edit().apply {
                     putBoolean("isRaw", switchRawMode.isChecked)
                     putString("rawCmd", editRawCommand.text.toString())
@@ -141,11 +142,29 @@ class MainActivity : AppCompatActivity() {
                     putString("listen", editListen.text.toString())
                 }.apply()
 
-                checkPermissionsAndStart()
+                // --- Подготовка VPN ---
+                val vpnIntent = VpnService.prepare(this)
+                if (vpnIntent != null) {
+                    startActivityForResult(vpnIntent, 1)
+                } else {
+                    startVpnService()
+                }
             } else {
                 stopService(Intent(this, ProxyService::class.java))
                 btnToggle.text = "ЗАПУСТИТЬ ПРОКСИ"
             }
+        }
+    }
+
+    private fun startVpnService() {
+        startService(Intent(this, WgVpnService::class.java))
+        btnToggle.text = "ОСТАНОВИТЬ ПРОКСИ"
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 1 && resultCode == RESULT_OK) {
+            startVpnService()
         }
     }
 
