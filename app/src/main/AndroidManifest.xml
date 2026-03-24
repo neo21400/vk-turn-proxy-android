@@ -10,8 +10,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    
-    <uses-permission android:name="android.permission.BIND_VPN_SERVICE" 
+
+    <uses-permission android:name="android.permission.BIND_VPN_SERVICE"
         tools:ignore="ProtectedPermissions" />
 
     <application
@@ -32,9 +32,9 @@
             </intent-filter>
         </activity>
 
-        <activity 
-            android:name=".SettingsActivity" 
-            android:exported="false" 
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
         <service
@@ -42,14 +42,20 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="specialUse">
-            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="VPN and Proxy connectivity for network optimization" />
         </service>
 
         <service
-    android:name=".WgVpnService"
-    android:permission="android.permission.BIND_VPN_SERVICE"
-    android:exported="false" />
+            android:name=".WgVpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="VPN connectivity" />
+        </service>
 
     </application>
 </manifest>
