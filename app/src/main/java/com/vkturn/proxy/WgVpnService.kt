@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import com.wireguard.config.Config
+import com.vkturn.proxy.UdpBridge
 
 class WgVpnService : VpnService() {
 
@@ -49,6 +50,9 @@ class WgVpnService : VpnService() {
         builder.setSession("vk_tunnel")
 
         vpnInterface = builder.establish()
+
+        val bridge = UdpBridge()
+        bridge.start()
 
         val fd = vpnInterface?.fd ?: throw Exception("FD is null")
 
