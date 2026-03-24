@@ -12,12 +12,9 @@ import androidx.core.app.NotificationCompat
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
-import com.wireguard.config.Interface
-import com.wireguard.config.Peer
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
-import java.net.InetAddress
 import kotlin.concurrent.thread
 
 class ProxyService : Service() {
@@ -27,7 +24,7 @@ class ProxyService : Service() {
     private var binaryProcess: Process? = null
     private lateinit var backend: GoBackend
 
-    private class VkWgtunnel(private val name: String) : Tunnel {
+    private class VkWgTunnel(private val name: String) : Tunnel {
         override fun getName() = name
         override fun onStateChange(state: Tunnel.State) {
             addLog("WG ТУННЕЛЬ: $state")
@@ -48,7 +45,7 @@ class ProxyService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-    
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -63,57 +60,50 @@ class ProxyService : Service() {
         } else {
             startForeground(1, createNotification())
         }
-        
+
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VkTurn::BgLock")
-        wakeLock?.acquire(10 * 60 * 1000L)
+        wakeLock?.acquire(15 * 60 * 1000L) // 15 минут
 
         isRunning = true
 
-        thread {
+        thread(name = "ProxyInitThread") {
             startWireGuard()
-            Thread.sleep(1500)
+            Thread.sleep(1500)        // даём WG чуть-чуть подняться
             startBinary()
         }
 
         return START_STICKY
     }
 
-private fun getBinaryPath(): String? {
-    val abi = android.os.Build.SUPPORTED_ABIS[0]
-    val path = "${applicationInfo.nativeLibraryDir}/libvkturn.so"
-    val file = java.io.File(path)
-    
-    return if (file.exists()) {
-        path
-    } else {
-        addLog("Файл не найден по пути: $path")
-        null
-    }
-}
-    
-private fun startWireGuard() {
+    // ====================== WIREGUARD ======================
+    private fun startWireGuard() {
         val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
+
         val privKey = prefs.getString("wg_priv", "") ?: ""
         val pubKey = prefs.getString("wg_pub", "") ?: ""
-        val endpoint = prefs.getString("wg_end", "") ?: ""
+        var endpoint = prefs.getString("wg_end", "") ?: ""
         val localIp = prefs.getString("wg_local", "10.0.0.2/32") ?: "10.0.0.2/32"
 
         if (privKey.isEmpty() || pubKey.isEmpty() || endpoint.isEmpty()) {
-            addLog("ОШИБКА: Конфиг WireGuard пуст!")
+            addLog("ОШИБКА: Не все параметры WireGuard заполнены!")
             return
         }
 
-        try {
-            val tunnel = VkWgtunnel("vk_tunnel")
-            currentTunnel = tunnel
+        // === ИСПРАВЛЕНИЕ PORT NUMBER ===
+        if (!endpoint.contains(":")) {
+            endpoint = "$endpoint:9000"           // добавляем порт по умолчанию
+            addLog("Endpoint без порта → добавлен :9000 → $endpoint")
+        }
 
+        try {
             val configText = """
                 [Interface]
                 PrivateKey = $privKey
                 Address = $localIp
-                DNS = 1.1.1.1
-                
+                DNS = 1.1.1.1, 1.0.0.1
+                MTU = 1420
+
                 [Peer]
                 PublicKey = $pubKey
                 Endpoint = $endpoint
@@ -121,101 +111,116 @@ private fun startWireGuard() {
                 PersistentKeepalive = 25
             """.trimIndent()
 
-            val config = com.wireguard.config.Config.parse(configText.byteInputStream())
-            
-            backend.setState(tunnel, com.wireguard.android.backend.Tunnel.State.UP, config)
-            addLog("WireGuard успешно запущен.")
-            
+            val config = Config.parse(configText.byteInputStream())
+
+            val tunnel = VkWgTunnel("vk_tunnel")
+            currentTunnel = tunnel
+
+            backend.setState(tunnel, Tunnel.State.UP, config)
+            addLog("WireGuard успешно запущен (Endpoint: $endpoint)")
         } catch (e: Exception) {
             addLog("КРИТИЧЕСКАЯ ОШИБКА WG: ${e.message}")
+            e.printStackTrace()
         }
     }
-    
-private fun startBinary() {
-    val internalBin = File(filesDir, "libvkturn.so")
 
-    try {
-        val libraryPath = "${applicationInfo.nativeLibraryDir}/libvkturn.so"
-        val libFile = File(libraryPath)
+    // ====================== VK-TURN BINARY ======================
+    private fun startBinary() {
+        val internalBin = File(filesDir, "libvkturn.so")
 
-        if (libFile.exists()) {
-            libFile.inputStream().use { input ->
-                internalBin.outputStream().use { output ->
-                    input.copyTo(output)
+        try {
+            // Копируем из nativeLibraryDir (туда Gradle кладёт .so при сборке)
+            val libraryPath = "${applicationInfo.nativeLibraryDir}/libvkturn.so"
+            val sourceFile = File(libraryPath)
+
+            if (sourceFile.exists()) {
+                sourceFile.inputStream().use { input ->
+                    internalBin.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
                 }
+                addLog("Бинарник успешно скопирован в ${internalBin.absolutePath}")
+            } else if (!internalBin.exists()) {
+                addLog("ОШИБКА: libvkturn.so не найден в nativeLibraryDir")
+                return
             }
-            addLog("Бинарник успешно скопирован в filesDir")
-        } else if (!internalBin.exists()) {
-            addLog("ОШИБКА: libvkturn.so не найден ни в системе, ни в filesDir")
+
+            // ←←← ГЛАВНОЕ ИСПРАВЛЕНИЕ ←←←
+            val executable = internalBin.setExecutable(true, false)
+            val readable = internalBin.setReadable(true, false)
+            addLog("Права на исполнение: $executable | Чтение: $readable")
+
+        } catch (e: Exception) {
+            addLog("Ошибка подготовки бинарника: ${e.message}")
+            e.printStackTrace()
             return
         }
 
-        internalBin.setExecutable(true, false)
-        
-    } catch (e: Exception) {
-        addLog("Ошибка подготовки бинарника: ${e.message}")
-    }
+        // Параметры запуска
+        val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
+        val peer = prefs.getString("peer", "") ?: ""
+        val listen = prefs.getString("listen", "127.0.0.1:9000") ?: "127.0.0.1:9000"
+        val link = prefs.getString("link", "") ?: ""
 
-    val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
-    val peer = prefs.getString("peer", "") ?: ""
-    val listen = prefs.getString("listen", "127.0.0.1:9000") ?: "127.0.0.1:9000"
-    val link = prefs.getString("link", "") ?: ""
+        val cmd = mutableListOf(internalBin.absolutePath, "-peer", peer, "-listen", listen)
 
-    val cmd = mutableListOf(internalBin.absolutePath, "-peer", peer, "-listen", listen)
-    
-    if (link.isNotEmpty()) {
-        cmd.add(if (link.contains("yandex")) "-yandex-link" else "-vk-link")
-        cmd.add(link)
-    }
-    
-    if (prefs.getBoolean("udp", true)) cmd.add("-udp")
-    
-    val nThreads = prefs.getString("n", "8") ?: "8"
-    cmd.addAll(listOf("-n", nThreads))
-
-    try {
-        addLog("Запуск ядра...")
-        val pb = ProcessBuilder(cmd)
-            .directory(filesDir)
-            .redirectErrorStream(true)
-        
-        binaryProcess = pb.start()
-        
-        val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
-        thread(name = "CoreLogThread") {
-            try {
-                var line: String? 
-                while (isRunning) {
-                    line = reader.readLine()
-                    if (line == null) break
-                    addLog("CORE: $line")
-                }
-            } catch (e: Exception) {
-                if (isRunning) addLog("CORE LOG ERROR: ${e.message}")
-            } finally {
-                try { reader.close() } catch (_: Exception) {}
-            }
+        if (link.isNotEmpty()) {
+            cmd.add(if (link.contains("yandex")) "-yandex-link" else "-vk-link")
+            cmd.add(link)
         }
-    } catch (e: Exception) {
-        addLog("КРИТИЧЕСКАЯ ОШИБКА ЗАПУСКА: ${e.message}")
+
+        if (prefs.getBoolean("udp", true)) cmd.add("-udp")
+
+        val nThreads = prefs.getString("n", "8") ?: "8"
+        cmd.addAll(listOf("-n", nThreads))
+
+        try {
+            addLog("Запуск ядра... Команда: ${cmd.joinToString(" ")}")
+
+            val pb = ProcessBuilder(cmd)
+                .directory(filesDir)
+                .redirectErrorStream(true)
+
+            binaryProcess = pb.start()
+
+            // Читаем логи ядра
+            val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
+            thread(name = "CoreLogThread") {
+                try {
+                    var line: String?
+                    while (isRunning) {
+                        line = reader.readLine() ?: break
+                        addLog("CORE: $line")
+                    }
+                } catch (e: Exception) {
+                    if (isRunning) addLog("CORE LOG ERROR: ${e.message}")
+                } finally {
+                    reader.close()
+                }
+            }
+
+        } catch (e: Exception) {
+            addLog("КРИТИЧЕСКАЯ ОШИБКА ЗАПУСКА ЯДРА: ${e.message}")
+            e.printStackTrace()
+        }
     }
-}
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                "ProxyChannel", 
-                "VPN Service", 
+                "ProxyChannel",
+                "VK Turn + WireGuard",
                 NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            ).apply {
+                description = "Сервис VK-Turn Proxy"
+            }
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
     private fun createNotification() = NotificationCompat.Builder(this, "ProxyChannel")
         .setContentTitle("VK-Turn + WG")
-        .setContentText("Сервис работает")
+        .setContentText("Прокси активен")
         .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
         .setOngoing(true)
         .build()
@@ -223,11 +228,18 @@ private fun startBinary() {
     override fun onDestroy() {
         isRunning = false
         addLog("Остановка прокси...")
-        currentTunnel?.let { 
-            thread { backend.setState(it, Tunnel.State.DOWN, null) }
+
+        try {
+            currentTunnel?.let {
+                backend.setState(it, Tunnel.State.DOWN, null)
+            }
+        } catch (e: Exception) {
+            addLog("Ошибка остановки WG: ${e.message}")
         }
+
         binaryProcess?.destroy()
-        if (wakeLock?.isHeld == true) wakeLock?.release()
+        wakeLock?.takeIf { it.isHeld }?.release()
+
         super.onDestroy()
     }
 }
