@@ -108,13 +108,8 @@ private fun startWireGuard() {
             """.trimIndent()
 
             val config = com.wireguard.config.Config.parse(configText.byteInputStream())
-
-            val finalConfig = com.wireguard.config.Config.Builder()
-                .setInterface(config.interface)
-                .addPeers(config.peers)
-                .build()
-
-            backend.setState(tunnel, com.wireguard.android.backend.Tunnel.State.UP, finalConfig)
+            
+            backend.setState(tunnel, com.wireguard.android.backend.Tunnel.State.UP, config)
             addLog("WireGuard успешно запущен.")
             
         } catch (e: Exception) {
