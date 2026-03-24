@@ -38,7 +38,7 @@ android {
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 
-    implementation("com.wireguard.android:tunnel:1.0.20230706")
+    implementation("com.github.WireGuard:wireguard-android:master-SNAPSHOT")
     implementation("com.github.mwiede:jsch:0.2.17")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation(libs.androidx.core.ktx)
