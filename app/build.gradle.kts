@@ -8,6 +8,11 @@ android {
     compileSdk = 36
 
     packaging {
+        packaging {
+            jniLibs {
+                useLegacyPackaging = true 
+            }
+        }
         resources {
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
             excludes += "/META-INF/DEPENDENCIES"
