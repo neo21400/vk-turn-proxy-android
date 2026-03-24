@@ -25,6 +25,10 @@ android {
         versionCode = 2
         versionName = "1.1.0"
         multiDexEnabled = true
+        ndk {
+            abiFilters.add("arm64-v8a")
+            abiFilters.add("armeabi-v7a")
+        }
     }
 
     buildTypes {
