@@ -146,16 +146,28 @@ class ProxyService : Service() {
         }
     }
     
-    private fun startBinary() {
+private fun startBinary() {
         val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
         
-        val customBin = File(filesDir, "custom_vkturn")
-        val executable = if (customBin.exists()) {
-            customBin.setExecutable(true)
-            customBin.absolutePath
-        } else {
-            "${applicationInfo.nativeLibraryDir}/libvkturn.so"
+        val internalBin = File(filesDir, "libvkturn.so")
+        val sourceBin = File(applicationInfo.nativeLibraryDir, "libvkturn.so") 
+        
+        try {
+            if (sourceBin.exists()) {
+                sourceBin.inputStream().use { input ->
+                    internalBin.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                internalBin.setExecutable(true, false) 
+            } else {
+                addLog("ОШИБКА: Исходный libvkturn.so не найден в APK!")
+            }
+        } catch (e: Exception) {
+            addLog("Ошибка подготовки бинарника: ${e.message}")
         }
+
+        val executable = internalBin.absolutePath
 
         val peer = prefs.getString("peer", "") ?: ""
         val link = prefs.getString("link", "") ?: ""
@@ -190,12 +202,16 @@ class ProxyService : Service() {
             val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
             thread {
                 var line: String? = null
-                while (isRunning && reader.readLine().also { line = it } != null) {
-                    addLog("CORE: $line")
+                try {
+                    while (isRunning && reader.readLine().also { line = it } != null) {
+                        addLog("CORE: $line")
+                    }
+                } catch (e: Exception) {
+                    addLog("CORE STOP: ${e.message}")
                 }
             }
         } catch (e: Exception) {
-            addLog("ОШИБКА ЯДРА: ${e.message}")
+            addLog("ОШИБКА ЗАПУСКА ЯДРА: ${e.message}")
         }
     }
 
