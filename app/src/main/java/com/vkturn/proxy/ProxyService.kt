@@ -183,12 +183,16 @@ private fun startBinary() {
         val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
         thread(name = "CoreLogThread") {
             try {
-                var line: String?
-                while (isRunning && reader.readLine().also { line = it } != null) {
-                    line?.let { addLog("CORE: $it") }
+                var line: String? 
+                while (isRunning) {
+                    line = reader.readLine()
+                    if (line == null) break
+                    addLog("CORE: $line")
                 }
             } catch (e: Exception) {
                 if (isRunning) addLog("CORE LOG ERROR: ${e.message}")
+            } finally {
+                try { reader.close() } catch (_: Exception) {}
             }
         }
     } catch (e: Exception) {
