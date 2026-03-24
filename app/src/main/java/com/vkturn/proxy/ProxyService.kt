@@ -17,19 +17,19 @@ import java.io.File
 import java.io.InputStreamReader
 import kotlin.concurrent.thread
 
+class VkWgtunnel(private val name: String) : Tunnel {
+    override fun getName() = name
+    override fun onStateChange(state: Tunnel.State) {
+        ProxyService.addLog("WG ТУННЕЛЬ: $state")
+    }
+}
+
 class ProxyService : Service() {
 
     private var currentTunnel: Tunnel? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var binaryProcess: Process? = null
     private lateinit var backend: GoBackend
-
-    class VkWgTunnel(private val name: String) : Tunnel {
-        override fun getName() = name
-        override fun onStateChange(state: Tunnel.State) {
-            addLog("WG ТУННЕЛЬ: $state")
-        }
-    }
 
     companion object {
         var isRunning = false
