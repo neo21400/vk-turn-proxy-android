@@ -50,6 +50,16 @@ class WgVpnService : VpnService() {
 
         vpnInterface = builder.establish()
 
+        val fd = vpnInterface?.fd ?: throw Exception("FD is null")
+
+        val configStr = config.toWgQuickString()
+
+        val result = WgNative.turnOn(fd, configStr)
+
+        if (result != 0) {
+            throw Exception("wg-go failed: $result")
+        }
+
         if (vpnInterface != null) {
             ProxyService.addLog("VPN интерфейс успешно создан (fd: ${vpnInterface?.fd})")
         } else {
@@ -57,6 +67,10 @@ class WgVpnService : VpnService() {
         }
     }
 
+fun Config.toWgQuickString(): String {
+    return this.toString()
+}
+    
     override fun onDestroy() {
         try {
             vpnInterface?.close()
