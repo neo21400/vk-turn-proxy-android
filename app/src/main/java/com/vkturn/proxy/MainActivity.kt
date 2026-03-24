@@ -48,7 +48,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-        if (!isGranted) Toast.makeText(this, "Разрешите уведомления для фоновой работы!", Toast.LENGTH_LONG).show()
+        if (isGranted) {
+            checkPermissionsAndStart() 
+        } else {
+            Toast.makeText(this, "Разрешите уведомления для фоновой работы!", Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -169,14 +173,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkPermissionsAndStart() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                return
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+             requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
         }
+
         ProxyService.logBuffer.clear()
-        startForegroundService(Intent(this, ProxyService::class.java))
+        val intent = Intent(this, ProxyService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
         btnToggle.text = "ОСТАНОВИТЬ ПРОКСИ"
     }
 
