@@ -33,7 +33,7 @@ class WgVpnService : VpnService() {
         builder.setMtu(iface.mtu.orElse(1280))
 
         iface.addresses.forEach { addr ->
-            builder.addAddress(addr.address, addr.prefixLength)
+            builder.addAddress(addr.address, addr.mask)
         }
 
         iface.dnsServers.forEach { dns ->
@@ -42,12 +42,11 @@ class WgVpnService : VpnService() {
 
         config.peers.forEach { peer ->
             peer.allowedIps.forEach { allowed ->
-                builder.addRoute(allowed.address, allowed.prefixLength)
+                builder.addRoute(allowed.address, allowed.mask)
             }
         }
 
         builder.setSession("vk_tunnel")
-        builder.setConfigureIntent(null)
 
         vpnInterface = builder.establish()
 
