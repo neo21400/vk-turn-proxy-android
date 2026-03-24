@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.view.View
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,7 +19,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import java.io.File
 import java.io.FileOutputStream
-import android.net.VpnService
 
 class MainActivity : AppCompatActivity() {
 
@@ -26,7 +26,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var logScrollView: ScrollView
     private lateinit var btnToggle: Button
 
-    // Обработка выбора файла для обновления ядра
     private val filePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             result.data?.data?.let { uri ->
@@ -48,22 +47,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-        if (isGranted) {
-            checkPermissionsAndStart() 
-        } else {
-            Toast.makeText(this, "Разрешите уведомления для фоновой работы!", Toast.LENGTH_LONG).show()
-        }
+        if (!isGranted) Toast.makeText(this, "Разрешите уведомления для фоновой работы!", Toast.LENGTH_LONG).show()
+        else startProxyService()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Инициализация элементов
         tvLogs = findViewById(R.id.tvLogs)
         logScrollView = findViewById(R.id.logScrollView)
         btnToggle = findViewById(R.id.btnToggle)
-        tvLogs.setTextIsSelectable(true) // Позволяет выделять текст логов
+        tvLogs.setTextIsSelectable(true)
 
         val switchRawMode = findViewById<Switch>(R.id.switchRawMode)
         val editRawCommand = findViewById<EditText>(R.id.editRawCommand)
@@ -75,7 +70,6 @@ class MainActivity : AppCompatActivity() {
         val checkNoDtls = findViewById<CheckBox>(R.id.checkNoDtls)
         val editListen = findViewById<EditText>(R.id.editListen)
 
-        // Загрузка настроек
         val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
         switchRawMode.isChecked = prefs.getBoolean("isRaw", false)
         editRawCommand.setText(prefs.getString("rawCmd", ""))
@@ -86,7 +80,6 @@ class MainActivity : AppCompatActivity() {
         checkNoDtls.isChecked = prefs.getBoolean("noDtls", false)
         editListen.setText(prefs.getString("listen", "127.0.0.1:9000"))
 
-        // Переключение режимов интерфейса
         val updateUiState = {
             if (switchRawMode.isChecked) {
                 editRawCommand.visibility = View.VISIBLE
@@ -99,7 +92,7 @@ class MainActivity : AppCompatActivity() {
         updateUiState()
         switchRawMode.setOnCheckedChangeListener { _, _ -> updateUiState() }
 
-        // Кнопки управления
+        // Кнопки
         findViewById<Button>(R.id.btnUpdateBinary).setOnClickListener {
             val intent = Intent(Intent.ACTION_GET_CONTENT).apply { type = "*/*" }
             filePicker.launch(intent)
@@ -124,69 +117,61 @@ class MainActivity : AppCompatActivity() {
             tvLogs.text = "Консоль очищена."
         }
 
-        // Кнопка настроек
-        val btnSettings = findViewById<Button>(R.id.btnSettings)
-        btnSettings.setOnClickListener {
-            val intent = Intent(this, SettingsActivity::class.java)
-            startActivity(intent)
+        findViewById<Button>(R.id.btnSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
         }
 
-        // --- Основная кнопка старта/остановки ---
         btnToggle.setOnClickListener {
+            Log.d("MainActivity", "btnToggle clicked! isRunning=${ProxyService.isRunning}")
             if (!ProxyService.isRunning) {
-                // Сохранение настроек перед стартом
-                prefs.edit().apply {
-                    putBoolean("isRaw", switchRawMode.isChecked)
-                    putString("rawCmd", editRawCommand.text.toString())
-                    putString("peer", editPeer.text.toString())
-                    putString("link", editLink.text.toString())
-                    putString("n", editN.text.toString())
-                    putBoolean("udp", checkUdp.isChecked)
-                    putBoolean("noDtls", checkNoDtls.isChecked)
-                    putString("listen", editListen.text.toString())
-                }.apply()
-
-                // --- Подготовка VPN ---
-                val vpnIntent = VpnService.prepare(this)
-                if (vpnIntent != null) {
-                    startActivityForResult(vpnIntent, 1)
-                } else {
-                    startVpnService()
-                }
+                savePrefs(prefs, switchRawMode, editRawCommand, editPeer, editLink, editN, checkUdp, checkNoDtls, editListen)
+                checkPermissionsAndStart()
             } else {
                 stopService(Intent(this, ProxyService::class.java))
                 btnToggle.text = "ЗАПУСТИТЬ ПРОКСИ"
             }
         }
-    }
 
-    private fun startVpnService() {
-        startService(Intent(this, WgVpnService::class.java))
-        btnToggle.text = "ОСТАНОВИТЬ ПРОКСИ"
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 1 && resultCode == RESULT_OK) {
-            startVpnService()
+        // --- Автостарт туннеля при запуске ---
+        btnToggle.post {
+            if (!ProxyService.isRunning) {
+                Log.d("MainActivity", "Auto-starting proxy...")
+                savePrefs(prefs, switchRawMode, editRawCommand, editPeer, editLink, editN, checkUdp, checkNoDtls, editListen)
+                checkPermissionsAndStart()
+            }
         }
+    }
+
+    private fun savePrefs(prefs: android.content.SharedPreferences,
+                          switchRawMode: Switch, editRawCommand: EditText,
+                          editPeer: EditText, editLink: EditText,
+                          editN: EditText, checkUdp: CheckBox,
+                          checkNoDtls: CheckBox, editListen: EditText) {
+        prefs.edit().apply {
+            putBoolean("isRaw", switchRawMode.isChecked)
+            putString("rawCmd", editRawCommand.text.toString())
+            putString("peer", editPeer.text.toString())
+            putString("link", editLink.text.toString())
+            putString("n", editN.text.toString())
+            putBoolean("udp", checkUdp.isChecked)
+            putBoolean("noDtls", checkNoDtls.isChecked)
+            putString("listen", editListen.text.toString())
+        }.apply()
     }
 
     private fun checkPermissionsAndStart() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-             requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                return
+            }
         }
+        startProxyService()
+    }
 
+    private fun startProxyService() {
         ProxyService.logBuffer.clear()
-        val intent = Intent(this, ProxyService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
+        startForegroundService(Intent(this, ProxyService::class.java))
         btnToggle.text = "ОСТАНОВИТЬ ПРОКСИ"
     }
 
