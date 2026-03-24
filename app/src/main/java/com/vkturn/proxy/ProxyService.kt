@@ -91,20 +91,20 @@ class ProxyService : Service() {
             val tunnel = VkWgtunnel("vk_tunnel")
             currentTunnel = tunnel
 
-            // 1. Создаем Билдер Интерфейса
             val iBuilder = com.wireguard.config.Interface.Builder()
             
-            // Добавляем адрес (через явный вызов)
             iBuilder.addAddress(com.wireguard.config.InetNetwork.parse(localIp))
-            
-            // КРИТИЧЕСКИЙ МОМЕНТ: Устанавливаем ключ через явную переменную
-            val keyPrivate: com.wireguard.crypto.Key = com.wireguard.crypto.Key.fromBase64(privKey)
-            iBuilder.setPrivateKey(keyPrivate)
-            
-            // DNS
+
+            try {
+                val privateKey = com.wireguard.crypto.Key.fromBase64(privKey)
+                val setPrivateKeyMethod = iBuilder.javaClass.getMethod("setPrivateKey", com.wireguard.crypto.Key::class.java)
+                setPrivateKeyMethod.invoke(iBuilder, privateKey)
+            } catch (e: Exception) {
+                addLog("Ошибка установки ключа: ${e.message}")
+            }
+
             iBuilder.addDnsServer(java.net.InetAddress.getByName("1.1.1.1"))
 
-            // Исключения приложений
             val excludedApps = mutableSetOf(packageName)
             val extraExcludes = prefs.getString("excluded_apps", "") ?: ""
             if (extraExcludes.isNotEmpty()) {
@@ -114,28 +114,22 @@ class ProxyService : Service() {
 
             val finalInterface = iBuilder.build()
 
-            // 2. Создаем Билдер Peer
             val pBuilder = com.wireguard.config.Peer.Builder()
-            
             pBuilder.addAllowedIp(com.wireguard.config.InetNetwork.parse("0.0.0.0/0"))
             pBuilder.setEndpoint(com.wireguard.config.InetEndpoint.parse(endpoint))
             
-            val keyPublic: com.wireguard.crypto.Key = com.wireguard.crypto.Key.fromBase64(pubKey)
+            val keyPublic = com.wireguard.crypto.Key.fromBase64(pubKey)
             pBuilder.setPublicKey(keyPublic)
-            
             pBuilder.setPersistentKeepalive(25)
             
             val finalPeer = pBuilder.build()
 
-            // 3. Собираем итоговый конфиг
-            val configBuilder = com.wireguard.config.Config.Builder()
-            configBuilder.setInterface(finalInterface)
-            configBuilder.addPeer(finalPeer)
-            
-            val finalConfig = configBuilder.build()
+            val config = com.wireguard.config.Config.Builder()
+                .setInterface(finalInterface)
+                .addPeer(finalPeer)
+                .build()
 
-            // Запуск
-            backend.setState(tunnel, com.wireguard.android.backend.Tunnel.State.UP, finalConfig)
+            backend.setState(tunnel, com.wireguard.android.backend.Tunnel.State.UP, config)
             addLog("WireGuard успешно запущен.")
             
         } catch (e: Exception) {
