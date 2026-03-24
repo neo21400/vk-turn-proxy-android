@@ -24,7 +24,7 @@ class ProxyService : Service() {
     private var binaryProcess: Process? = null
     private lateinit var backend: GoBackend
 
-    private class VkWgTunnel(private val name: String) : Tunnel {
+    class VkWgTunnel(private val name: String) : Tunnel {
         override fun getName() = name
         override fun onStateChange(state: Tunnel.State) {
             addLog("WG ТУННЕЛЬ: $state")
