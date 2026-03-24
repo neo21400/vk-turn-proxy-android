@@ -8,16 +8,14 @@ android {
     compileSdk = 36
 
     sourceSets {
-        main {
-            jniLibs.srcDirs = ['src/main/jniLibs']
+        getByName("main") {
+            jniLibs.srcDirs("src/main/jniLibs")
         }
     }
 
     packaging {
-        packaging {
-            jniLibs {
-                useLegacyPackaging = true 
-            }
+        jniLibs {
+            useLegacyPackaging = true   // оставляем, если нужно для твоего .so
         }
         resources {
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
@@ -36,6 +34,7 @@ android {
         versionCode = 2
         versionName = "1.1.0"
         multiDexEnabled = true
+
         ndk {
             abiFilters.add("arm64-v8a")
             abiFilters.add("armeabi-v7a")
@@ -67,6 +66,7 @@ dependencies {
     implementation("com.wireguard.android:tunnel:1.0.20230706")
     implementation("com.github.mwiede:jsch:0.2.17")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
