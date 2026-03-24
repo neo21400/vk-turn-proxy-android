@@ -22,10 +22,10 @@ import kotlin.concurrent.thread
 
 class ProxyService : Service() {
 
-    private val backend by lazy { GoBackend(this) }
     private var currentTunnel: Tunnel? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var binaryProcess: Process? = null
+    private lateinit var backend: GoBackend
 
     private class VkWgtunnel(private val name: String) : Tunnel {
         override fun getName() = name
@@ -48,8 +48,6 @@ class ProxyService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-
-    private lateinit var backend: GoBackend
     
     override fun onCreate() {
         super.onCreate()
@@ -120,61 +118,70 @@ private fun startWireGuard() {
     }
     
 private fun startBinary() {
-        val internalBin = File(filesDir, "libvkturn.so")
+    val internalBin = File(filesDir, "libvkturn.so")
 
-        try {
-            if (!internalBin.exists()) {
-                val abi = Build.SUPPORTED_ABIS[0] 
-                addLog("Извлечение бинарника для $abi...")
-                val libraryPath = "${applicationInfo.nativeLibraryDir}/libvkturn.so"
-                val libFile = File(libraryPath)
-                
-                if (libFile.exists()) {
-                    addLog("Бинарник найден: $libraryPath")
-                } else {
-                    addLog("ОШИБКА: libvkturn.so не найден в ${applicationInfo.nativeLibraryDir}")
-                    return
+    try {
+        val libraryPath = "${applicationInfo.nativeLibraryDir}/libvkturn.so"
+        val libFile = File(libraryPath)
+
+        if (libFile.exists()) {
+            libFile.inputStream().use { input ->
+                internalBin.outputStream().use { output ->
+                    input.copyTo(output)
                 }
             }
-            
-            internalBin.setExecutable(true, false)
-        } catch (e: Exception) {
-            addLog("Ошибка подготовки: ${e.message}")
+            addLog("Бинарник успешно скопирован в filesDir")
+        } else if (!internalBin.exists()) {
+            addLog("ОШИБКА: libvkturn.so не найден ни в системе, ни в filesDir")
+            return
         }
 
-        val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
-        val peer = prefs.getString("peer", "") ?: ""
-        val listen = prefs.getString("listen", "127.0.0.1:9000") ?: "127.0.0.1:9000"
-        val link = prefs.getString("link", "") ?: ""
-
-        val cmd = mutableListOf(internalBin.absolutePath, "-peer", peer, "-listen", listen)
-        if (link.isNotEmpty()) {
-            cmd.add(if (link.contains("yandex")) "-yandex-link" else "-vk-link")
-            cmd.add(link)
-        }
-        if (prefs.getBoolean("udp", true)) cmd.add("-udp")
-        cmd.addAll(listOf("-n", prefs.getString("n", "8") ?: "8"))
-
-        try {
-            addLog("Запуск ядра...")
-            val pb = ProcessBuilder(cmd).directory(filesDir).redirectErrorStream(true)
-            binaryProcess = pb.start()
-            
-            val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
-            thread {
-                var line: String? = null 
-                try {
-                    while (isRunning && reader.readLine().also { line = it } != null) {
-                        addLog("CORE: $line")
-                    }
-                } catch (e: Exception) {
-                    addLog("CORE STOP: ${e.message}")
-                }
-            }
-        } catch (e: Exception) {
-            addLog("ОШИБКА ЯДРА: ${e.message}")
-        }
+        internalBin.setExecutable(true, false)
+        
+    } catch (e: Exception) {
+        addLog("Ошибка подготовки бинарника: ${e.message}")
     }
+
+    val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
+    val peer = prefs.getString("peer", "") ?: ""
+    val listen = prefs.getString("listen", "127.0.0.1:9000") ?: "127.0.0.1:9000"
+    val link = prefs.getString("link", "") ?: ""
+
+    val cmd = mutableListOf(internalBin.absolutePath, "-peer", peer, "-listen", listen)
+    
+    if (link.isNotEmpty()) {
+        cmd.add(if (link.contains("yandex")) "-yandex-link" else "-vk-link")
+        cmd.add(link)
+    }
+    
+    if (prefs.getBoolean("udp", true)) cmd.add("-udp")
+    
+    val nThreads = prefs.getString("n", "8") ?: "8"
+    cmd.addAll(listOf("-n", nThreads))
+
+    try {
+        addLog("Запуск ядра...")
+        val pb = ProcessBuilder(cmd)
+            .directory(filesDir)
+            .redirectErrorStream(true)
+        
+        binaryProcess = pb.start()
+        
+        val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
+        thread(name = "CoreLogThread") {
+            try {
+                var line: String?
+                while (isRunning && reader.readLine().also { line = it } != null) {
+                    line?.let { addLog("CORE: $it") }
+                }
+            } catch (e: Exception) {
+                if (isRunning) addLog("CORE LOG ERROR: ${e.message}")
+            }
+        }
+    } catch (e: Exception) {
+        addLog("КРИТИЧЕСКАЯ ОШИБКА ЗАПУСКА: ${e.message}")
+    }
+}
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
