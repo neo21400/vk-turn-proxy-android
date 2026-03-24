@@ -49,9 +49,11 @@ class ProxyService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private lateinit var backend: GoBackend
+    
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        backend = GoBackend(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
