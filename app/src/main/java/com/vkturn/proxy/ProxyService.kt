@@ -63,14 +63,14 @@ class ProxyService : Service() {
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VkTurn::BgLock")
-        wakeLock?.acquire(15 * 60 * 1000L) // 15 минут
+        wakeLock?.acquire(15 * 60 * 1000L) 
 
         isRunning = true
 
         thread(name = "ProxyInitThread") {
+            startBinary()                    
+            Thread.sleep(2500)               
             startWireGuard()
-            Thread.sleep(1500)        // даём WG чуть-чуть подняться
-            startBinary()
         }
 
         return START_STICKY
@@ -82,18 +82,18 @@ class ProxyService : Service() {
 
         val privKey = prefs.getString("wg_priv", "") ?: ""
         val pubKey = prefs.getString("wg_pub", "") ?: ""
-        var endpoint = prefs.getString("wg_end", "") ?: ""
+        var endpoint = prefs.getString("wg_end", "127.0.0.1:9000") ?: "127.0.0.1:9000"
         val localIp = prefs.getString("wg_local", "10.0.0.2/32") ?: "10.0.0.2/32"
 
-        if (privKey.isEmpty() || pubKey.isEmpty() || endpoint.isEmpty()) {
-            addLog("ОШИБКА: Не все параметры WireGuard заполнены!")
+        if (privKey.isEmpty() || pubKey.isEmpty()) {
+            addLog("ОШИБКА: wg_priv или wg_pub не заполнены в настройках!")
             return
         }
 
         // === ИСПРАВЛЕНИЕ PORT NUMBER ===
-        if (!endpoint.contains(":")) {
-            endpoint = "$endpoint:9000"           // добавляем порт по умолчанию
-            addLog("Endpoint без порта → добавлен :9000 → $endpoint")
+        if (!endpoint.contains("127.0.0.1") && !endpoint.contains("localhost")) {
+            endpoint = "127.0.0.1:9000"
+            addLog("WG Endpoint принудительно установлен на 127.0.0.1:9000")
         }
 
         try {
@@ -102,7 +102,7 @@ class ProxyService : Service() {
                 PrivateKey = $privKey
                 Address = $localIp
                 DNS = 1.1.1.1, 1.0.0.1
-                MTU = 1420
+                MTU = 1280
 
                 [Peer]
                 PublicKey = $pubKey
@@ -117,9 +117,10 @@ class ProxyService : Service() {
             currentTunnel = tunnel
 
             backend.setState(tunnel, Tunnel.State.UP, config)
-            addLog("WireGuard успешно запущен (Endpoint: $endpoint)")
+            addLog("WireGuard туннель успешно поднят (Endpoint: $endpoint)")
         } catch (e: Exception) {
             addLog("КРИТИЧЕСКАЯ ОШИБКА WG: ${e.message}")
+            addLog("Полная ошибка: ${e.stackTraceToString().take(500)}")
             e.printStackTrace()
         }
     }
