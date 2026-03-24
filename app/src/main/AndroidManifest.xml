@@ -46,5 +46,10 @@
                 android:value="VPN and Proxy connectivity for network optimization" />
         </service>
 
+        <service
+    android:name=".WgVpnService"
+    android:permission="android.permission.BIND_VPN_SERVICE"
+    android:exported="false" />
+
     </application>
 </manifest>
