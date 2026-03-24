@@ -125,85 +125,64 @@ class ProxyService : Service() {
     }
 
     // ====================== VK-TURN BINARY ======================
-    private fun startBinary() {
-        val internalBin = File(filesDir, "libvkturn.so")
+private fun startBinary() {
+    val binaryPath = "${applicationInfo.nativeLibraryDir}/libvkturn.so"
+    val binaryFile = File(binaryPath)
 
-        try {
-            // Копируем из nativeLibraryDir (туда Gradle кладёт .so при сборке)
-            val libraryPath = "${applicationInfo.nativeLibraryDir}/libvkturn.so"
-            val sourceFile = File(libraryPath)
-
-            if (sourceFile.exists()) {
-                sourceFile.inputStream().use { input ->
-                    internalBin.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                }
-                addLog("Бинарник успешно скопирован в ${internalBin.absolutePath}")
-            } else if (!internalBin.exists()) {
-                addLog("ОШИБКА: libvkturn.so не найден в nativeLibraryDir")
-                return
-            }
-
-            // ←←← ГЛАВНОЕ ИСПРАВЛЕНИЕ ←←←
-            val executable = internalBin.setExecutable(true, false)
-            val readable = internalBin.setReadable(true, false)
-            addLog("Права на исполнение: $executable | Чтение: $readable")
-
-        } catch (e: Exception) {
-            addLog("Ошибка подготовки бинарника: ${e.message}")
-            e.printStackTrace()
-            return
-        }
-
-        // Параметры запуска
-        val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
-        val peer = prefs.getString("peer", "") ?: ""
-        val listen = prefs.getString("listen", "127.0.0.1:9000") ?: "127.0.0.1:9000"
-        val link = prefs.getString("link", "") ?: ""
-
-        val cmd = mutableListOf(internalBin.absolutePath, "-peer", peer, "-listen", listen)
-
-        if (link.isNotEmpty()) {
-            cmd.add(if (link.contains("yandex")) "-yandex-link" else "-vk-link")
-            cmd.add(link)
-        }
-
-        if (prefs.getBoolean("udp", true)) cmd.add("-udp")
-
-        val nThreads = prefs.getString("n", "8") ?: "8"
-        cmd.addAll(listOf("-n", nThreads))
-
-        try {
-            addLog("Запуск ядра... Команда: ${cmd.joinToString(" ")}")
-
-            val pb = ProcessBuilder(cmd)
-                .directory(filesDir)
-                .redirectErrorStream(true)
-
-            binaryProcess = pb.start()
-
-            // Читаем логи ядра
-            val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
-            thread(name = "CoreLogThread") {
-                try {
-                    var line: String?
-                    while (isRunning) {
-                        line = reader.readLine() ?: break
-                        addLog("CORE: $line")
-                    }
-                } catch (e: Exception) {
-                    if (isRunning) addLog("CORE LOG ERROR: ${e.message}")
-                } finally {
-                    reader.close()
-                }
-            }
-
-        } catch (e: Exception) {
-            addLog("КРИТИЧЕСКАЯ ОШИБКА ЗАПУСКА ЯДРА: ${e.message}")
-            e.printStackTrace()
-        }
+    if (!binaryFile.exists()) {
+        addLog("ОШИБКА: libvkturn.so не найден в nativeLibraryDir!")
+        return
     }
+
+    addLog("Бинарник найден: $binaryPath  (размер: ${binaryFile.length()} байт)")
+
+    val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
+    val peer = prefs.getString("peer", "") ?: ""
+    val listen = prefs.getString("listen", "127.0.0.1:9000") ?: "127.0.0.1:9000"
+    val link = prefs.getString("link", "") ?: ""
+
+    val cmd = mutableListOf(binaryPath, "-peer", peer, "-listen", listen)
+
+    if (link.isNotEmpty()) {
+        cmd.add(if (link.contains("yandex")) "-yandex-link" else "-vk-link")
+        cmd.add(link)
+    }
+    if (prefs.getBoolean("udp", true)) cmd.add("-udp")
+
+    val nThreads = prefs.getString("n", "8") ?: "8"
+    cmd.addAll(listOf("-n", nThreads))
+
+    try {
+        addLog("Запуск ядра... Команда: ${cmd.joinToString(" ")}")
+
+        val pb = ProcessBuilder(cmd)
+            .directory(filesDir)         
+            .redirectErrorStream(true)
+
+        binaryProcess = pb.start()
+
+        val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
+        thread(name = "CoreLogThread") {
+            try {
+                var line: String?
+                while (isRunning) {
+                    line = reader.readLine() ?: break
+                    addLog("CORE: $line")
+                }
+            } catch (e: Exception) {
+                if (isRunning) addLog("CORE LOG ERROR: ${e.message}")
+            } finally {
+                reader.close()
+            }
+        }
+
+        addLog("Ядро vkturn запущено успешно (из native libs)")
+
+    } catch (e: Exception) {
+        addLog("КРИТИЧЕСКАЯ ОШИБКА ЗАПУСКА ЯДРА: ${e.message}")
+        e.printStackTrace()
+    }
+}
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
