@@ -4,9 +4,6 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import com.wireguard.config.Config
-import com.wireguard.config.InetNetwork
-import com.wireguard.config.Peer
-import java.net.InetAddress
 
 class WgVpnService : VpnService() {
 
@@ -34,33 +31,37 @@ class WgVpnService : VpnService() {
 
         val iface = config.`interface`
         builder.setMtu(iface.mtu.orElse(1280))
-        iface.addresses.forEach { address ->
-            builder.addAddress(address.address, address.prefixLength)
+
+        iface.addresses.forEach { addr ->
+            builder.addAddress(addr.address, addr.prefixLength)
         }
+
         iface.dnsServers.forEach { dns ->
             builder.addDnsServer(dns)
         }
 
         config.peers.forEach { peer ->
-            peer.allowedIps.forEach { allowedIp ->
-                builder.addRoute(allowedIp.address, allowedIp.prefixLength)
+            peer.allowedIps.forEach { allowed ->
+                builder.addRoute(allowed.address, allowed.prefixLength)
             }
         }
 
         builder.setSession("vk_tunnel")
-        builder.setConfigureIntent(null) 
+        builder.setConfigureIntent(null)
 
         vpnInterface = builder.establish()
 
         if (vpnInterface != null) {
-            ProxyService.addLog("VPN интерфейс успешно создан")
+            ProxyService.addLog("VPN интерфейс успешно создан (fd: ${vpnInterface?.fd})")
         } else {
             ProxyService.addLog("Не удалось создать VPN интерфейс")
         }
     }
 
     override fun onDestroy() {
-        vpnInterface?.close()
+        try {
+            vpnInterface?.close()
+        } catch (e: Exception) {}
         vpnInterface = null
         ProxyService.addLog("VPN интерфейс закрыт")
         super.onDestroy()
