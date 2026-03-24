@@ -77,53 +77,54 @@ class ProxyService : Service() {
     }
 
     // ====================== WIREGUARD ======================
-    private fun startWireGuard() {
-        val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
+private fun startWireGuard() {
+    val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
 
-        val privKey = prefs.getString("wg_priv", "") ?: ""
-        val pubKey = prefs.getString("wg_pub", "") ?: ""
-        var endpoint = prefs.getString("wg_end", "127.0.0.1:9000") ?: "127.0.0.1:9000"
-        val localIp = prefs.getString("wg_local", "10.0.0.2/32") ?: "10.0.0.2/32"
+    val privKey = prefs.getString("wg_priv", "") ?: ""
+    val pubKey = prefs.getString("wg_pub", "") ?: ""
+    val localIp = prefs.getString("wg_local", "10.0.0.2/32") ?: "10.0.0.2/32"
 
-        if (privKey.isEmpty() || pubKey.isEmpty()) {
-            addLog("ОШИБКА: wg_priv или wg_pub не заполнены в настройках!")
-            return
-        }
-
-        // === ИСПРАВЛЕНИЕ PORT NUMBER ===
-        if (!endpoint.contains("127.0.0.1") && !endpoint.contains("localhost")) {
-            endpoint = "127.0.0.1:9000"
-            addLog("WG Endpoint принудительно установлен на 127.0.0.1:9000")
-        }
-
-        try {
-            val configText = """
-                [Interface]
-                PrivateKey = $privKey
-                Address = $localIp
-                DNS = 1.1.1.1, 1.0.0.1
-                MTU = 1280
-
-                [Peer]
-                PublicKey = $pubKey
-                Endpoint = $endpoint
-                AllowedIPs = 0.0.0.0/0
-                PersistentKeepalive = 25
-            """.trimIndent()
-
-            val config = Config.parse(configText.byteInputStream())
-
-            val tunnel = VkWgTunnel("vk_tunnel")
-            currentTunnel = tunnel
-
-            backend.setState(tunnel, Tunnel.State.UP, config)
-            addLog("WireGuard туннель успешно поднят (Endpoint: $endpoint)")
-        } catch (e: Exception) {
-            addLog("КРИТИЧЕСКАЯ ОШИБКА WG: ${e.message}")
-            addLog("Полная ошибка: ${e.stackTraceToString().take(500)}")
-            e.printStackTrace()
-        }
+    if (privKey.isEmpty() || pubKey.isEmpty()) {
+        addLog("ОШИБКА: wg_priv или wg_pub не заполнены!")
+        return
     }
+
+    try {
+        currentTunnel?.let {
+            try {
+                backend.setState(it, Tunnel.State.DOWN, null)
+                addLog("Предыдущий WG туннель остановлен")
+            } catch (_: Exception) {}
+        }
+
+        val configText = """
+            [Interface]
+            PrivateKey = $privKey
+            Address = $localIp
+            DNS = 1.1.1.1, 1.0.0.1
+            MTU = 1280
+
+            [Peer]
+            PublicKey = $pubKey
+            Endpoint = 127.0.0.1:9000
+            AllowedIPs = 0.0.0.0/0
+            PersistentKeepalive = 25
+        """.trimIndent()
+
+        val config = Config.parse(configText.byteInputStream())
+
+        val tunnel = VkWgTunnel("vk_tunnel")
+        currentTunnel = tunnel
+
+        backend.setState(tunnel, Tunnel.State.UP, config)
+        addLog("WireGuard туннель успешно поднят! (Endpoint 127.0.0.1:9000)")
+        
+    } catch (e: Exception) {
+        addLog("КРИТИЧЕСКАЯ ОШИБКА WG: ${e.message}")
+        addLog("Полная ошибка: ${e.stackTraceToString().take(800)}")
+        e.printStackTrace()
+    }
+}
 
     // ====================== VK-TURN BINARY ======================
 private fun startBinary() {
