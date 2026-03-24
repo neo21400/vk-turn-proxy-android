@@ -51,6 +51,7 @@ class ProxyService : Service() {
     
     override fun onCreate() {
         super.onCreate()
+        createNotificationChannel()
         backend = GoBackend(this)
     }
 
