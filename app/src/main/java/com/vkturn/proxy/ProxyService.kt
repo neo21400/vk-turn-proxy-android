@@ -124,15 +124,13 @@ private fun startBinary() {
             if (!internalBin.exists()) {
                 val abi = Build.SUPPORTED_ABIS[0] 
                 addLog("Извлечение бинарника для $abi...")
+                val libraryPath = "${applicationInfo.nativeLibraryDir}/libvkturn.so"
+                val libFile = File(libraryPath)
                 
-                val libraryFile = File(applicationInfo.nativeLibraryDir, "libvkturn.so")
-                
-                if (libraryFile.exists()) {
-                    libraryFile.inputStream().use { input ->
-                        internalBin.outputStream().use { output -> input.copyTo(output) }
-                    }
+                if (libFile.exists()) {
+                    addLog("Бинарник найден: $libraryPath")
                 } else {
-                    addLog("ОШИБКА: libvkturn.so не найден в nativeLibraryDir")
+                    addLog("ОШИБКА: libvkturn.so не найден в ${applicationInfo.nativeLibraryDir}")
                     return
                 }
             }
