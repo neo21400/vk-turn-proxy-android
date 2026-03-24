@@ -7,6 +7,12 @@ android {
     namespace = "com.vkturn.proxy"
     compileSdk = 36
 
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+
     packaging {
         packaging {
             jniLibs {
