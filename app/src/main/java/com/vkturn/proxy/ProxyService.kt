@@ -69,7 +69,7 @@ class ProxyService : Service() {
 
         thread(name = "ProxyInitThread") {
             startBinary()                    
-            Thread.sleep(2500)               
+            Thread.sleep(4500)               
             startWireGuard()
         }
 
@@ -218,7 +218,7 @@ private fun startBinary() {
             addLog("Ошибка остановки WG: ${e.message}")
         }
 
-        binaryProcess?.destroy()
+        binaryProcess?.destroyForcibly()
         wakeLock?.takeIf { it.isHeld }?.release()
 
         super.onDestroy()
