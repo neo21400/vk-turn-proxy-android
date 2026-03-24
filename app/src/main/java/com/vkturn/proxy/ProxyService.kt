@@ -90,12 +90,17 @@ private fun startWireGuard() {
     }
 
     try {
+        addLog("Попытка запуска WireGuard...")
+
         currentTunnel?.let {
-            try {
-                backend.setState(it, Tunnel.State.DOWN, null)
-                addLog("Предыдущий WG туннель остановлен")
-            } catch (_: Exception) {}
+            try { backend.setState(it, Tunnel.State.DOWN, null) } catch (_: Exception) {}
         }
+
+        try {
+            backend.setState(VkWgTunnel("vk_tunnel"), Tunnel.State.DOWN, null)
+        } catch (_: Exception) {}
+
+        Thread.sleep(1200) 
 
         val configText = """
             [Interface]
@@ -117,11 +122,12 @@ private fun startWireGuard() {
         currentTunnel = tunnel
 
         backend.setState(tunnel, Tunnel.State.UP, config)
-        addLog("WireGuard туннель успешно поднят! (Endpoint 127.0.0.1:9000)")
+        
+        addLog("WireGuard успешно запущен! Должен появиться значок VPN.")
         
     } catch (e: Exception) {
-        addLog("КРИТИЧЕСКАЯ ОШИБКА WG: ${e.message}")
-        addLog("Полная ошибка: ${e.stackTraceToString().take(800)}")
+        addLog("BackendException при запуске WG: ${e.message}")
+        addLog("Stack: ${e.stackTraceToString().take(1200)}")
         e.printStackTrace()
     }
 }
