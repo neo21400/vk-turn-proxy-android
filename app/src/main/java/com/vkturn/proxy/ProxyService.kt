@@ -90,17 +90,7 @@ private fun startWireGuard() {
     }
 
     try {
-        addLog("Попытка запуска WireGuard...")
-
-        currentTunnel?.let {
-            try { backend.setState(it, Tunnel.State.DOWN, null) } catch (_: Exception) {}
-        }
-
-        try {
-            backend.setState(VkWgTunnel("vk_tunnel"), Tunnel.State.DOWN, null)
-        } catch (_: Exception) {}
-
-        Thread.sleep(1200) 
+        addLog("Подготовка WireGuard через VpnService...")
 
         val configText = """
             [Interface]
@@ -118,16 +108,22 @@ private fun startWireGuard() {
 
         val config = Config.parse(configText.byteInputStream())
 
-        val tunnel = VkWgTunnel("vk_tunnel")
-        currentTunnel = tunnel
+        val intent = Intent(this, WgVpnService::class.java)
+        startService(intent)
 
-        backend.setState(tunnel, Tunnel.State.UP, config)
-        
-        addLog("WireGuard успешно запущен! Должен появиться значок VPN.")
-        
+        Thread.sleep(800)
+
+        WgVpnService.backend?.let { b ->
+            val tunnel = VkWgtunnel("vk_tunnel")
+            currentTunnel = tunnel
+            b.setState(tunnel, Tunnel.State.UP, config)
+            addLog("WireGuard успешно запущен через VpnService!")
+        } ?: run {
+            addLog("VpnService не инициализировался")
+        }
+
     } catch (e: Exception) {
-        addLog("BackendException при запуске WG: ${e.message}")
-        addLog("Stack: ${e.stackTraceToString().take(1200)}")
+        addLog("Ошибка запуска WG: ${e.message}")
         e.printStackTrace()
     }
 }
