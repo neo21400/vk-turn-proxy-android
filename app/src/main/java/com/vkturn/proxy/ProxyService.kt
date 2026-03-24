@@ -101,11 +101,15 @@ class ProxyService : Service() {
 
             try {
                 val privateKey = com.wireguard.crypto.Key.fromBase64(privKey)
-                val setPrivateKeyMethod = iBuilder.javaClass.getMethod("setPrivateKey", com.wireguard.crypto.Key::class.java)
-                setPrivateKeyMethod.invoke(iBuilder, privateKey)
-            } catch (e: Exception) {
-                addLog("Ошибка установки ключа: ${e.message}")
+                val method = iBuilder.javaClass.methods.find { it.name == "setPrivateKey" }
+                if (method != null) {
+                    method.invoke(iBuilder, privateKey)
+            } else {
+                addLog("ОШИБКА: Метод setPrivateKey не найден в классе")
             }
+        } catch (e: Exception) {
+            addLog("Ошибка ключа: ${e.message}")
+        }
 
             iBuilder.addDnsServer(java.net.InetAddress.getByName("1.1.1.1"))
 
