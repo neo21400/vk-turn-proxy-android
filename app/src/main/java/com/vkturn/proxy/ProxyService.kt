@@ -78,9 +78,8 @@ class ProxyService : Service() {
         return START_STICKY
     }
 
-    private fun startWireGuard() {
+private fun startWireGuard() {
         val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
-        
         val privKey = prefs.getString("wg_priv", "") ?: ""
         val pubKey = prefs.getString("wg_pub", "") ?: ""
         val endpoint = prefs.getString("wg_end", "") ?: ""
@@ -95,123 +94,86 @@ class ProxyService : Service() {
             val tunnel = VkWgtunnel("vk_tunnel")
             currentTunnel = tunnel
 
-            val iBuilder = com.wireguard.config.Interface.Builder()
-            
-            iBuilder.addAddress(com.wireguard.config.InetNetwork.parse(localIp))
+            val configText = """
+                [Interface]
+                PrivateKey = $privKey
+                Address = $localIp
+                DNS = 1.1.1.1
+                
+                [Peer]
+                PublicKey = $pubKey
+                Endpoint = $endpoint
+                AllowedIPs = 0.0.0.0/0
+                PersistentKeepalive = 25
+            """.trimIndent()
 
-            try {
-                val privateKey = com.wireguard.crypto.Key.fromBase64(privKey)
-                val method = iBuilder.javaClass.methods.find { it.name == "setPrivateKey" }
-                if (method != null) {
-                    method.invoke(iBuilder, privateKey)
-            } else {
-                addLog("ОШИБКА: Метод setPrivateKey не найден в классе")
-            }
-        } catch (e: Exception) {
-            addLog("Ошибка ключа: ${e.message}")
-        }
+            val config = com.wireguard.config.Config.parse(configText.byteInputStream())
 
-            iBuilder.addDnsServer(java.net.InetAddress.getByName("1.1.1.1"))
-
-            val excludedApps = mutableSetOf(packageName)
-            val extraExcludes = prefs.getString("excluded_apps", "") ?: ""
-            if (extraExcludes.isNotEmpty()) {
-                extraExcludes.split(",").forEach { excludedApps.add(it.trim()) }
-            }
-            iBuilder.excludeApplications(excludedApps)
-
-            val finalInterface = iBuilder.build()
-
-            val pBuilder = com.wireguard.config.Peer.Builder()
-            pBuilder.addAllowedIp(com.wireguard.config.InetNetwork.parse("0.0.0.0/0"))
-            pBuilder.setEndpoint(com.wireguard.config.InetEndpoint.parse(endpoint))
-            
-            val keyPublic = com.wireguard.crypto.Key.fromBase64(pubKey)
-            pBuilder.setPublicKey(keyPublic)
-            pBuilder.setPersistentKeepalive(25)
-            
-            val finalPeer = pBuilder.build()
-
-            val config = com.wireguard.config.Config.Builder()
-                .setInterface(finalInterface)
-                .addPeer(finalPeer)
+            val finalConfig = com.wireguard.config.Config.Builder()
+                .setInterface(config.interface)
+                .addPeers(config.peers)
                 .build()
 
-            backend.setState(tunnel, com.wireguard.android.backend.Tunnel.State.UP, config)
+            backend.setState(tunnel, com.wireguard.android.backend.Tunnel.State.UP, finalConfig)
             addLog("WireGuard успешно запущен.")
             
         } catch (e: Exception) {
             addLog("КРИТИЧЕСКАЯ ОШИБКА WG: ${e.message}")
-            e.printStackTrace()
         }
     }
     
 private fun startBinary() {
-        val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
-        
         val internalBin = File(filesDir, "libvkturn.so")
-        val sourceBin = File(applicationInfo.nativeLibraryDir, "libvkturn.so") 
-        
+
         try {
-            if (sourceBin.exists()) {
-                sourceBin.inputStream().use { input ->
-                    internalBin.outputStream().use { output ->
-                        input.copyTo(output)
+            if (!internalBin.exists()) {
+                val abi = Build.SUPPORTED_ABIS[0] 
+                addLog("Извлечение бинарника для $abi...")
+                
+                val libraryFile = File(applicationInfo.nativeLibraryDir, "libvkturn.so")
+                
+                if (libraryFile.exists()) {
+                    libraryFile.inputStream().use { input ->
+                        internalBin.outputStream().use { output -> input.copyTo(output) }
                     }
+                } else {
+                    addLog("ОШИБКА: libvkturn.so не найден в nativeLibraryDir")
+                    return
                 }
-                internalBin.setExecutable(true, false) 
-            } else {
-                addLog("ОШИБКА: Исходный libvkturn.so не найден в APK!")
             }
+            
+            internalBin.setExecutable(true, false)
         } catch (e: Exception) {
-            addLog("Ошибка подготовки бинарника: ${e.message}")
+            addLog("Ошибка подготовки: ${e.message}")
         }
 
-        val executable = internalBin.absolutePath
-
+        val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
         val peer = prefs.getString("peer", "") ?: ""
-        val link = prefs.getString("link", "") ?: ""
         val listen = prefs.getString("listen", "127.0.0.1:9000") ?: "127.0.0.1:9000"
+        val link = prefs.getString("link", "") ?: ""
 
-        val cmd = mutableListOf<String>()
-        val isRaw = prefs.getBoolean("isRaw", false)
-        
-        if (isRaw) {
-            val rawCmd = prefs.getString("rawCmd", "") ?: ""
-            cmd.add(executable)
-            cmd.addAll(rawCmd.split(" ").filter { it.isNotEmpty() })
-        } else {
-            cmd.addAll(listOf(executable, "-peer", peer, "-listen", listen))
-            if (link.isNotEmpty()) {
-                cmd.add(if (link.contains("yandex")) "-yandex-link" else "-vk-link")
-                cmd.add(link)
-            }
-            if (prefs.getBoolean("udp", true)) cmd.add("-udp")
-            if (prefs.getBoolean("noDtls", false)) cmd.add("-no-dtls")
-            cmd.addAll(listOf("-n", prefs.getString("n", "8") ?: "8"))
+        val cmd = mutableListOf(internalBin.absolutePath, "-peer", peer, "-listen", listen)
+        if (link.isNotEmpty()) {
+            cmd.add(if (link.contains("yandex")) "-yandex-link" else "-vk-link")
+            cmd.add(link)
         }
+        if (prefs.getBoolean("udp", true)) cmd.add("-udp")
+        cmd.addAll(listOf("-n", prefs.getString("n", "8") ?: "8"))
 
         try {
-            addLog("Запуск ядра: ${cmd.joinToString(" ")}")
-            val pb = ProcessBuilder(cmd)
-            pb.directory(filesDir)
-            pb.redirectErrorStream(true)
-            
+            addLog("Запуск ядра...")
+            val pb = ProcessBuilder(cmd).directory(filesDir).redirectErrorStream(true)
             binaryProcess = pb.start()
             
             val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
             thread {
-                var line: String? = null
-                try {
-                    while (isRunning && reader.readLine().also { line = it } != null) {
-                        addLog("CORE: $line")
-                    }
-                } catch (e: Exception) {
-                    addLog("CORE STOP: ${e.message}")
+                var line: String?
+                while (isRunning && reader.readLine().also { line = it } != null) {
+                    addLog("CORE: $line")
                 }
             }
         } catch (e: Exception) {
-            addLog("ОШИБКА ЗАПУСКА ЯДРА: ${e.message}")
+            addLog("ОШИБКА ЯДРА: ${e.message}")
         }
     }
 
