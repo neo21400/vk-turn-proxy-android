@@ -7,6 +7,17 @@ android {
     namespace = "com.vkturn.proxy"
     compileSdk = 36
 
+    packaging {
+        resources {
+            excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+            excludes += "/META-INF/DEPENDENCIES"
+            excludes += "/META-INF/LICENSE*"
+            excludes += "/META-INF/NOTICE*"
+            excludes += "/META-INF/ASL2.0"
+            excludes += "/META-INF/*.kotlin_module"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.vkturn.proxy"
         minSdk = 23
