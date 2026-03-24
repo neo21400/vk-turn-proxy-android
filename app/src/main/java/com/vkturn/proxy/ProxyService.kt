@@ -78,6 +78,19 @@ class ProxyService : Service() {
         return START_STICKY
     }
 
+private fun getBinaryPath(): String? {
+    val abi = android.os.Build.SUPPORTED_ABIS[0]
+    val path = "${applicationInfo.nativeLibraryDir}/libvkturn.so"
+    val file = java.io.File(path)
+    
+    return if (file.exists()) {
+        path
+    } else {
+        addLog("Файл не найден по пути: $path")
+        null
+    }
+}
+    
 private fun startWireGuard() {
         val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
         val privKey = prefs.getString("wg_priv", "") ?: ""
