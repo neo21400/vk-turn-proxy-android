@@ -16,11 +16,10 @@ class WgVpnService : VpnService() {
         backend = GoBackend(this)
     }
 
-    // Этот метод будет вызываться из ProxyService
     fun startTunnel(config: Config) {
         currentConfig = config
         try {
-            val tunnel = ProxyService.VkWgtunnel("vk_tunnel")  // используем тот же класс
+            val tunnel = VkWgtunnel("vk_tunnel")
             backend?.setState(tunnel, com.wireguard.android.backend.Tunnel.State.UP, config)
             ProxyService.addLog("WireGuard запущен через VpnService!")
         } catch (e: Exception) {
