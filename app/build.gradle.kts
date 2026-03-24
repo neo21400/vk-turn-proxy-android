@@ -15,7 +15,7 @@ android {
 
     packaging {
         jniLibs {
-            useLegacyPackaging = true   // оставляем, если нужно для твоего .so
+            useLegacyPackaging = true 
         }
         resources {
             excludes += "/META-INF/versions/9/OSGI-INF/MANIFEST.MF"
