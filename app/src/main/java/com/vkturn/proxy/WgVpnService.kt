@@ -18,7 +18,7 @@ import java.io.InputStreamReader
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
-class WgVpnService : VpnService() {
+    class WgVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var binaryProcess: Process? = null
@@ -101,7 +101,6 @@ class WgVpnService : VpnService() {
 
         while (!dtlsReady.get() && System.currentTimeMillis() < deadline) 
             Thread.sleep(50)
-        }
 
         return dtlsReady.get()
     }
