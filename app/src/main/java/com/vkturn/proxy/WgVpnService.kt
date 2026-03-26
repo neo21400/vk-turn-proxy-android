@@ -99,7 +99,7 @@ import kotlin.concurrent.thread
             }
         }
 
-        while (!dtlsReady.get() && System.currentTimeMillis() < deadline) {
+        while (!dtlsReady.get() && System.currentTimeMillis() < deadline)
             Thread.sleep(50)
         }
 
