@@ -66,7 +66,6 @@ dependencies {
     implementation("com.wireguard.android:tunnel:1.0.20230706")
     implementation("com.github.mwiede:jsch:0.2.17")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    implementation("com.wireguard:wireguard-android:1.0.20230608")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
