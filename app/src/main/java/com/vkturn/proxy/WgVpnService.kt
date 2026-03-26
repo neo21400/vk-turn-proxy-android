@@ -14,12 +14,16 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 import kotlin.concurrent.thread
+import com.wireguard.android.backend.GoBackend
+import com.wireguard.android.backend.Tunnel
 
 class WgVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var binaryProcess: Process? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var backend: GoBackend? = null
+    private var tunnel: Tunnel? = null
 
     companion object {
         var isRunning = false
@@ -123,44 +127,24 @@ class WgVpnService : VpnService() {
             PersistentKeepalive = 25
         """.trimIndent()
 
-        try {
+         try {
             val config = Config.parse(configText.byteInputStream())
-            val iface = config.`interface`
 
-            val builder = Builder()
-                .setSession("vk_tunnel")
-                .setMtu(iface.mtu.orElse(1280))
-                .addDisallowedApplication(packageName)
+            backend = GoBackend(this)
 
-            iface.addresses.forEach { builder.addAddress(it.address, it.mask) }
-            iface.dnsServers.forEach { builder.addDnsServer(it) }
-            config.peers.forEach { peer ->
-                peer.allowedIps.forEach { builder.addRoute(it.address, it.mask) }
+            tunnel = object : Tunnel {
+                override fun getName() = "vk_tunnel"
+                override fun onStateChange(state: Tunnel.State) {
+                    addLog("WG состояние: $state")
+                }
             }
 
-            vpnInterface = builder.establish()
+            backend!!.setState(tunnel!!, Tunnel.State.UP, config)
 
-            if (vpnInterface == null) {
-                addLog("ОШИБКА: establish() вернул null — нет разрешения VPN?")
-                stopSelf()
-                return
-            }
-
-            val fd = vpnInterface!!.fd
-            addLog("VPN интерфейс создан (fd=$fd), запускаем wg-go...")
-
-            val result = WgNative.turnOn(fd, configText)
-            if (result != 0) {
-                addLog("ОШИБКА: wg-go вернул $result")
-                stopSelf()
-                return
-            }
-
-            addLog("WireGuard через VK Turn запущен!")
+            addLog("WireGuard запущен!")
 
         } catch (e: Exception) {
             addLog("Ошибка запуска VPN: ${e.message}")
-            e.printStackTrace()
         }
     }
 
@@ -207,7 +191,17 @@ class WgVpnService : VpnService() {
         isRunning = false
         addLog("Остановка...")
 
-        try { WgNative.turnOff() } catch (e: Exception) {}
+        try {
+            tunnel?.let { t ->
+                backend?.setState(t, Tunnel.State.DOWN, null)
+            }
+        } catch (e: Exception) {
+            addLog("Ошибка остановки WG: ${e.message}")
+        }
+
+        backend = null
+        tunnel = null
+
         try { vpnInterface?.close() } catch (e: Exception) {}
         binaryProcess?.destroyForcibly()
         wakeLock?.takeIf { it.isHeld }?.release()
