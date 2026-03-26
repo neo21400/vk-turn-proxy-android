@@ -1,86 +1,243 @@
 package com.vkturn.proxy
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.net.VpnService
+import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
+import androidx.core.app.NotificationCompat
 import com.wireguard.config.Config
-import com.vkturn.proxy.UdpBridge
+import java.io.BufferedReader
+import java.io.File
+import java.io.InputStreamReader
+import kotlin.concurrent.thread
 
 class WgVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
+    private var binaryProcess: Process? = null
+    private var wakeLock: PowerManager.WakeLock? = null
 
     companion object {
-        var currentConfig: Config? = null
+        var isRunning = false
+        val logBuffer = mutableListOf<String>()
+        var onLogReceived: ((String) -> Unit)? = null
+
+        fun addLog(msg: String) {
+            val formatted = "[${System.currentTimeMillis() % 100000}] $msg"
+            if (logBuffer.size > 200) logBuffer.removeAt(0)
+            logBuffer.add(formatted)
+            onLogReceived?.invoke(formatted)
+        }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        currentConfig?.let { config ->
-            try {
-                startVpn(config)
-                ProxyService.addLog("WireGuard запущен через ручной VpnService")
-            } catch (e: Exception) {
-                ProxyService.addLog("Ошибка запуска VPN: ${e.message}")
-                e.printStackTrace()
+        if (isRunning) return START_STICKY
+
+        startForegroundCompat()
+
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "VkTurn::BgLock")
+        wakeLock?.acquire(15 * 60 * 1000L)
+
+        isRunning = true
+
+        thread(name = "CombinedStartThread") {
+            val proxyStarted = startBinary()
+            if (!proxyStarted) {
+                addLog("Не удалось запустить бинарник, останавливаемся")
+                stopSelf()
+                return@thread
             }
+
+            val ready = waitForProxy(timeoutMs = 15_000)
+            if (!ready) {
+                addLog("Таймаут ожидания DTLS-соединения")
+                stopSelf()
+                return@thread
+            }
+
+            startVpn()
         }
+
         return START_STICKY
     }
 
-    private fun startVpn(config: Config) {
-        val builder = Builder()
+    private fun waitForProxy(timeoutMs: Long): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
 
-        val iface = config.`interface`
-        builder.setMtu(iface.mtu.orElse(1280))
-
-        iface.addresses.forEach { addr ->
-            builder.addAddress(addr.address, addr.mask)
-        }
-
-        iface.dnsServers.forEach { dns ->
-            builder.addDnsServer(dns)
-        }
-
-        config.peers.forEach { peer ->
-            peer.allowedIps.forEach { allowed ->
-                builder.addRoute(allowed.address, allowed.mask)
+        var dtlsReady = false
+        val logThread = thread(name = "CoreLogThread") {
+            try {
+                var line: String?
+                while (isRunning) {
+                    line = reader.readLine() ?: break
+                    addLog("CORE: $line")
+                    if (line.contains("Established DTLS connection")) {
+                        dtlsReady = true
+                    }
+                }
+            } catch (e: Exception) {
+                if (isRunning) addLog("CORE LOG ERROR: ${e.message}")
             }
         }
 
-        builder.setSession("vk_tunnel")
-
-        vpnInterface = builder.establish()
-
-        val bridge = UdpBridge()
-        bridge.start()
-
-        val fd = vpnInterface?.fd ?: throw Exception("FD is null")
-
-        val configStr = config.toWgQuickString()
-
-        val result = WgNative.turnOn(fd, configStr)
-
-        if (result != 0) {
-            throw Exception("wg-go failed: $result")
+        while (!dtlsReady && System.currentTimeMillis() < deadline) {
+            Thread.sleep(100)
         }
 
-        if (vpnInterface != null) {
-            ProxyService.addLog("VPN интерфейс успешно создан (fd: ${vpnInterface?.fd})")
-        } else {
-            ProxyService.addLog("Не удалось создать VPN интерфейс")
+        return dtlsReady
+    }
+
+    private fun startVpn() {
+        val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
+        val privKey = prefs.getString("wg_priv", "") ?: ""
+        val pubKey  = prefs.getString("wg_pub",  "") ?: ""
+        val localIp = prefs.getString("wg_local", "10.0.0.2/32") ?: "10.0.0.2/32"
+
+        if (privKey.isEmpty() || pubKey.isEmpty()) {
+            addLog("ОШИБКА: wg_priv или wg_pub не заполнены!")
+            return
+        }
+
+        val configText = """
+            [Interface]
+            PrivateKey = $privKey
+            Address = $localIp
+            DNS = 1.1.1.1, 1.0.0.1
+            MTU = 1280
+
+            [Peer]
+            PublicKey = $pubKey
+            Endpoint = 127.0.0.1:9000
+            AllowedIPs = 0.0.0.0/0
+            PersistentKeepalive = 25
+        """.trimIndent()
+
+        try {
+            val config = Config.parse(configText.byteInputStream())
+            val iface = config.`interface`
+
+            val builder = Builder()
+                .setSession("vk_tunnel")
+                .setMtu(iface.mtu.orElse(1280))
+                .addDisallowedApplication(packageName)
+
+            iface.addresses.forEach { builder.addAddress(it.address, it.mask) }
+            iface.dnsServers.forEach { builder.addDnsServer(it) }
+            config.peers.forEach { peer ->
+                peer.allowedIps.forEach { builder.addRoute(it.address, it.mask) }
+            }
+
+            vpnInterface = builder.establish()
+
+            if (vpnInterface == null) {
+                addLog("ОШИБКА: establish() вернул null — нет разрешения VPN?")
+                stopSelf()
+                return
+            }
+
+            val fd = vpnInterface!!.fd
+            addLog("VPN интерфейс создан (fd=$fd), запускаем wg-go...")
+
+            val result = WgNative.turnOn(fd, configText)
+            if (result != 0) {
+                addLog("ОШИБКА: wg-go вернул $result")
+                stopSelf()
+                return
+            }
+
+            addLog("WireGuard через VK Turn запущен!")
+
+        } catch (e: Exception) {
+            addLog("Ошибка запуска VPN: ${e.message}")
+            e.printStackTrace()
         }
     }
 
-fun Config.toWgQuickString(): String {
-    return this.toString()
-}
-    
+    private fun startBinary(): Boolean {
+        val binaryPath = "${applicationInfo.nativeLibraryDir}/libvkturn.so"
+        val binaryFile = File(binaryPath)
+
+        if (!binaryFile.exists()) {
+            addLog("ОШИБКА: libvkturn.so не найден!")
+            return false
+        }
+
+        val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
+        val peer   = prefs.getString("peer", "") ?: ""
+        val listen = prefs.getString("listen", "127.0.0.1:9000") ?: "127.0.0.1:9000"
+        val link   = prefs.getString("link", "") ?: ""
+
+        if (peer.isEmpty() || link.isEmpty()) {
+            addLog("ОШИБКА: peer или link не заполнены!")
+            return false
+        }
+
+        val cmd = mutableListOf(binaryPath, "-peer", peer, "-listen", listen)
+        cmd += if (link.contains("yandex")) listOf("-yandex-link", link)
+               else listOf("-vk-link", link)
+
+        if (prefs.getBoolean("udp", true)) cmd.add("-udp")
+        cmd += listOf("-n", prefs.getString("n", "8") ?: "8")
+
+        return try {
+            addLog("Запуск: ${cmd.joinToString(" ")}")
+            binaryProcess = ProcessBuilder(cmd)
+                .directory(filesDir)
+                .redirectErrorStream(true)
+                .start()
+            true
+        } catch (e: Exception) {
+            addLog("ОШИБКА запуска бинарника: ${e.message}")
+            false
+        }
+    }
+
     override fun onDestroy() {
-        try {
-            vpnInterface?.close()
-        } catch (e: Exception) {}
-        vpnInterface = null
-        ProxyService.addLog("VPN интерфейс закрыт")
+        isRunning = false
+        addLog("Остановка...")
+
+        try { WgNative.turnOff() } catch (e: Exception) {}
+        try { vpnInterface?.close() } catch (e: Exception) {}
+        binaryProcess?.destroyForcibly()
+        wakeLock?.takeIf { it.isHeld }?.release()
+
         super.onDestroy()
+    }
+
+    private fun startForegroundCompat() {
+        val notif = NotificationCompat.Builder(this, "ProxyChannel")
+            .setContentTitle("VK-Turn + WireGuard")
+            .setContentText("Прокси активен")
+            .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
+            .setOngoing(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(1, notif,
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(1, notif)
+        }
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "ProxyChannel", "VK Turn + WireGuard",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        }
     }
 }
