@@ -15,6 +15,7 @@ import com.wireguard.config.Config
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 class WgVpnService : VpnService() {
@@ -76,10 +77,11 @@ class WgVpnService : VpnService() {
         return START_STICKY
     }
 
-    @Volatile private var dtlsReady = false
+    private val dtlsReady = AtomicBoolean(false)
     
     private fun waitForProxy(timeoutMs: Long): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
+        dtlsReady.set(false)
 
         thread(name = "CoreLogThread") {
             try {
@@ -89,7 +91,7 @@ class WgVpnService : VpnService() {
                     line = reader.readLine() ?: break
                     addLog("CORE: $line")
                     if (line.contains("Established DTLS connection")) {
-                        dtlsReady = true
+                        dtlsReady.set(true)
                     }
                 }
             } catch (e: Exception) {
@@ -97,11 +99,11 @@ class WgVpnService : VpnService() {
             }
         }
 
-        while (!dtlsReady && System.currentTimeMillis() < deadline) {
-            Thread.sleep(100)
+        while (!dtlsReady.get() && System.currentTimeMillis() < deadline) 
+            Thread.sleep(50)
         }
 
-        return dtlsReady
+        return dtlsReady.get()
     }
 
     private fun startVpn() {
@@ -124,7 +126,6 @@ class WgVpnService : VpnService() {
             [Interface]
             PrivateKey = $privKey
             Address = $localIp
-            DNS = 1.1.1.1, 1.0.0.1
             MTU = 1280
 
             [Peer]
@@ -279,7 +280,7 @@ class WgVpnService : VpnService() {
     override fun onDestroy() {
         isRunning = false
         addLog("Остановка...")
-        dtlsReady = false
+        dtlsReady.set(false)
 
         try {
             tunnel?.let { t -> backend?.setState(t, Tunnel.State.DOWN, null) }
