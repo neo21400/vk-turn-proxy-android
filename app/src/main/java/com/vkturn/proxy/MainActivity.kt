@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -26,29 +27,39 @@ class MainActivity : AppCompatActivity() {
     private lateinit var logScrollView: ScrollView
     private lateinit var btnToggle: Button
 
+    private val vpnPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            startProxyService()
+        } else {
+            Toast.makeText(this, "Разрешение VPN отклонено!", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private val filePicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             result.data?.data?.let { uri ->
                 try {
                     val inputStream = contentResolver.openInputStream(uri)
                     val customBin = File(filesDir, "custom_vkturn")
-                    val outputStream = FileOutputStream(customBin)
-                    inputStream?.copyTo(outputStream)
+                    FileOutputStream(customBin).use { inputStream?.copyTo(it) }
                     inputStream?.close()
-                    outputStream.close()
                     customBin.setExecutable(true)
-                    ProxyService.addLog("СИСТЕМА: Кастомный бинарник установлен в /files/custom_vkturn")
+                    WgVpnService.addLog("СИСТЕМА: Кастомный бинарник установлен")
                     Toast.makeText(this, "Ядро обновлено!", Toast.LENGTH_SHORT).show()
                 } catch (e: Exception) {
-                    ProxyService.addLog("ОШИБКА ОБНОВЛЕНИЯ: ${e.message}")
+                    WgVpnService.addLog("ОШИБКА ОБНОВЛЕНИЯ: ${e.message}")
                 }
             }
         }
     }
 
-    private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-        if (!isGranted) Toast.makeText(this, "Разрешите уведомления для фоновой работы!", Toast.LENGTH_LONG).show()
-        else startProxyService()
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (!isGranted) Toast.makeText(this, "Разрешите уведомления!", Toast.LENGTH_LONG).show()
+        else checkVpnPermissionAndStart()  
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -60,128 +71,120 @@ class MainActivity : AppCompatActivity() {
         btnToggle = findViewById(R.id.btnToggle)
         tvLogs.setTextIsSelectable(true)
 
-        val switchRawMode = findViewById<Switch>(R.id.switchRawMode)
-        val editRawCommand = findViewById<EditText>(R.id.editRawCommand)
+        val switchRawMode    = findViewById<Switch>(R.id.switchRawMode)
+        val editRawCommand   = findViewById<EditText>(R.id.editRawCommand)
         val layoutGuiSettings = findViewById<LinearLayout>(R.id.layoutGuiSettings)
-        val editPeer = findViewById<EditText>(R.id.editPeer)
-        val editLink = findViewById<EditText>(R.id.editLink)
-        val editN = findViewById<EditText>(R.id.editN)
-        val checkUdp = findViewById<CheckBox>(R.id.checkUdp)
-        val checkNoDtls = findViewById<CheckBox>(R.id.checkNoDtls)
-        val editListen = findViewById<EditText>(R.id.editListen)
+        val editPeer         = findViewById<EditText>(R.id.editPeer)
+        val editLink         = findViewById<EditText>(R.id.editLink)
+        val editN            = findViewById<EditText>(R.id.editN)
+        val checkUdp         = findViewById<CheckBox>(R.id.checkUdp)
+        val checkNoDtls      = findViewById<CheckBox>(R.id.checkNoDtls)
+        val editListen       = findViewById<EditText>(R.id.editListen)
 
         val prefs = getSharedPreferences("ProxyPrefs", Context.MODE_PRIVATE)
-        switchRawMode.isChecked = prefs.getBoolean("isRaw", false)
+        switchRawMode.isChecked  = prefs.getBoolean("isRaw", false)
         editRawCommand.setText(prefs.getString("rawCmd", ""))
         editPeer.setText(prefs.getString("peer", ""))
         editLink.setText(prefs.getString("link", ""))
         editN.setText(prefs.getString("n", "8"))
-        checkUdp.isChecked = prefs.getBoolean("udp", true)
+        checkUdp.isChecked    = prefs.getBoolean("udp", true)
         checkNoDtls.isChecked = prefs.getBoolean("noDtls", false)
         editListen.setText(prefs.getString("listen", "127.0.0.1:9000"))
 
         val updateUiState = {
-            if (switchRawMode.isChecked) {
-                editRawCommand.visibility = View.VISIBLE
-                layoutGuiSettings.visibility = View.GONE
-            } else {
-                editRawCommand.visibility = View.GONE
-                layoutGuiSettings.visibility = View.VISIBLE
-            }
+            editRawCommand.visibility    = if (switchRawMode.isChecked) View.VISIBLE else View.GONE
+            layoutGuiSettings.visibility = if (switchRawMode.isChecked) View.GONE else View.VISIBLE
         }
         updateUiState()
         switchRawMode.setOnCheckedChangeListener { _, _ -> updateUiState() }
 
-        // Кнопки
         findViewById<Button>(R.id.btnUpdateBinary).setOnClickListener {
-            val intent = Intent(Intent.ACTION_GET_CONTENT).apply { type = "*/*" }
-            filePicker.launch(intent)
+            filePicker.launch(Intent(Intent.ACTION_GET_CONTENT).apply { type = "*/*" })
         }
-
         findViewById<Button>(R.id.btnBattery).setOnClickListener {
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                 data = Uri.parse("package:$packageName")
-            }
-            startActivity(intent)
+            })
         }
-
         findViewById<Button>(R.id.btnCopyLogs).setOnClickListener {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            val clip = ClipData.newPlainText("vk_turn_logs", tvLogs.text)
-            clipboard.setPrimaryClip(clip)
+            (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                .setPrimaryClip(ClipData.newPlainText("logs", tvLogs.text))
             Toast.makeText(this, "Логи скопированы!", Toast.LENGTH_SHORT).show()
         }
-
         findViewById<Button>(R.id.btnClearLogs).setOnClickListener {
-            ProxyService.logBuffer.clear()
+            WgVpnService.logBuffer.clear()
             tvLogs.text = "Консоль очищена."
         }
-
         findViewById<Button>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
         btnToggle.setOnClickListener {
-            Log.d("MainActivity", "btnToggle clicked! isRunning=${ProxyService.isRunning}")
-            if (!ProxyService.isRunning) {
+            Log.d("MainActivity", "btnToggle clicked! isRunning=${WgVpnService.isRunning}")
+            if (!WgVpnService.isRunning) {
                 savePrefs(prefs, switchRawMode, editRawCommand, editPeer, editLink, editN, checkUdp, checkNoDtls, editListen)
                 checkPermissionsAndStart()
             } else {
-                stopService(Intent(this, ProxyService::class.java))
+                stopService(Intent(this, WgVpnService::class.java))
                 btnToggle.text = "ЗАПУСТИТЬ ПРОКСИ"
             }
         }
-
-        // --- Автостарт туннеля при запуске ---
-        btnToggle.post {
-            if (!ProxyService.isRunning) {
-                Log.d("MainActivity", "Auto-starting proxy...")
-                savePrefs(prefs, switchRawMode, editRawCommand, editPeer, editLink, editN, checkUdp, checkNoDtls, editListen)
-                checkPermissionsAndStart()
-            }
-        }
-    }
-
-    private fun savePrefs(prefs: android.content.SharedPreferences,
-                          switchRawMode: Switch, editRawCommand: EditText,
-                          editPeer: EditText, editLink: EditText,
-                          editN: EditText, checkUdp: CheckBox,
-                          checkNoDtls: CheckBox, editListen: EditText) {
-        prefs.edit().apply {
-            putBoolean("isRaw", switchRawMode.isChecked)
-            putString("rawCmd", editRawCommand.text.toString())
-            putString("peer", editPeer.text.toString())
-            putString("link", editLink.text.toString())
-            putString("n", editN.text.toString())
-            putBoolean("udp", checkUdp.isChecked)
-            putBoolean("noDtls", checkNoDtls.isChecked)
-            putString("listen", editListen.text.toString())
-        }.apply()
     }
 
     private fun checkPermissionsAndStart() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
                 requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 return
             }
         }
-        startProxyService()
+        checkVpnPermissionAndStart()
+    }
+
+    private fun checkVpnPermissionAndStart() {
+        val vpnIntent = VpnService.prepare(this)
+        if (vpnIntent != null) {
+            vpnPermissionLauncher.launch(vpnIntent)
+        } else {
+            startProxyService()
+        }
     }
 
     private fun startProxyService() {
-        ProxyService.logBuffer.clear()
-        startForegroundService(Intent(this, ProxyService::class.java))
+        WgVpnService.logBuffer.clear()
+        startForegroundService(Intent(this, WgVpnService::class.java))
         btnToggle.text = "ОСТАНОВИТЬ ПРОКСИ"
     }
 
+
+    private fun savePrefs(
+        prefs: android.content.SharedPreferences,
+        switchRawMode: Switch, editRawCommand: EditText,
+        editPeer: EditText, editLink: EditText,
+        editN: EditText, checkUdp: CheckBox,
+        checkNoDtls: CheckBox, editListen: EditText
+    ) {
+        prefs.edit().apply {
+            putBoolean("isRaw",  switchRawMode.isChecked)
+            putString("rawCmd",  editRawCommand.text.toString())
+            putString("peer",    editPeer.text.toString())
+            putString("link",    editLink.text.toString())
+            putString("n",       editN.text.toString())
+            putBoolean("udp",    checkUdp.isChecked)
+            putBoolean("noDtls", checkNoDtls.isChecked)
+            putString("listen",  editListen.text.toString())
+        }.apply()
+    }
+
+
     override fun onResume() {
         super.onResume()
-        btnToggle.text = if (ProxyService.isRunning) "ОСТАНОВИТЬ ПРОКСИ" else "ЗАПУСТИТЬ ПРОКСИ"
-        tvLogs.text = ProxyService.logBuffer.joinToString("\n")
+        btnToggle.text = if (WgVpnService.isRunning) "ОСТАНОВИТЬ ПРОКСИ" else "ЗАПУСТИТЬ ПРОКСИ"
+        tvLogs.text = WgVpnService.logBuffer.joinToString("\n")
         scrollLogsToEnd()
 
-        ProxyService.onLogReceived = { msg ->
+        WgVpnService.onLogReceived = { msg ->
             runOnUiThread {
                 if (tvLogs.text.length > 25000) tvLogs.text = tvLogs.text.substring(10000)
                 tvLogs.append("\n$msg")
@@ -190,12 +193,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun scrollLogsToEnd() {
-        logScrollView.post { logScrollView.fullScroll(View.FOCUS_DOWN) }
-    }
-
     override fun onPause() {
         super.onPause()
-        ProxyService.onLogReceived = null
+        WgVpnService.onLogReceived = null
+    }
+
+    private fun scrollLogsToEnd() {
+        logScrollView.post { logScrollView.fullScroll(View.FOCUS_DOWN) }
     }
 }
