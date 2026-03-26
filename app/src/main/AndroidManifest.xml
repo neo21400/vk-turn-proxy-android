@@ -38,16 +38,6 @@
             android:windowSoftInputMode="adjustResize" />
 
         <service
-            android:name=".ProxyService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="VPN and Proxy connectivity for network optimization" />
-        </service>
-
-        <service
             android:name=".WgVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:exported="false"
