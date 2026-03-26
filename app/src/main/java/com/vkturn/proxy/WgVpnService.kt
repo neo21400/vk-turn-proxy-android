@@ -45,6 +45,7 @@ class WgVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (isRunning) return START_STICKY
+        dtlsReady = false
 
         startForegroundCompat()
 
@@ -75,13 +76,14 @@ class WgVpnService : VpnService() {
         return START_STICKY
     }
 
+    @Volatile private var dtlsReady = false
+    
     private fun waitForProxy(timeoutMs: Long): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
-        val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
 
-        var dtlsReady = false
         thread(name = "CoreLogThread") {
             try {
+                val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
                 var line: String?
                 while (isRunning) {
                     line = reader.readLine() ?: break
@@ -155,13 +157,51 @@ class WgVpnService : VpnService() {
     private fun buildAllowedIPs(excludeIp: String): String {
         if (excludeIp.isEmpty()) return "0.0.0.0/0"
         return try {
-            val parts = excludeIp.split(".").map { it.toInt() }
-            calculateExcludedRoutes(parts[0], parts[1], parts[2], parts[3])
+            excludeRouteFromDefault(excludeIp)
         } catch (e: Exception) {
             addLog("Ошибка разбора peer IP, используем 0.0.0.0/0")
             "0.0.0.0/0"
         }
     }
+
+    private fun excludeRouteFromDefault(excludeIp: String): String {
+        val parts = excludeIp.split(".").map { it.toInt() }
+        val target = (parts[0] shl 24) or (parts[1] shl 16) or (parts[2] shl 8) or parts[3]
+    
+        val result = mutableListOf<String>()
+        var lo = 0L
+        val hi = 0xFFFFFFFFL
+        val t = target.toLong() and 0xFFFFFFFFL
+    
+        var prefix = 0
+        var base = 0L
+    
+        while (prefix <= 32) {
+            val size = if (prefix == 32) 1L else (1L shl (32 - prefix))
+        
+            if (base == t && prefix == 32) {
+                break
+            }
+        
+            if (t >= base && t < base + size) {
+                val half = size / 2
+                if (t < base + half) {
+                    result.add("${longToIp(base + half)}/${prefix + 1}")
+                } else {
+                    result.add("${longToIp(base)}/${prefix + 1}")
+                    base += half
+                }
+                prefix++
+            } else {
+                break
+            }
+        }
+    
+        return if (result.isEmpty()) "0.0.0.0/0" else result.joinToString(", ")
+    }
+
+    private fun longToIp(ip: Long): String =
+        "${(ip shr 24) and 0xFF}.${(ip shr 16) and 0xFF}.${(ip shr 8) and 0xFF}.${ip and 0xFF}"
 
     private fun calculateExcludedRoutes(a: Int, b: Int, c: Int, d: Int): String {
         val routes = mutableListOf<String>()
@@ -239,6 +279,7 @@ class WgVpnService : VpnService() {
     override fun onDestroy() {
         isRunning = false
         addLog("Остановка...")
+        dtlsReady = false
 
         try {
             tunnel?.let { t -> backend?.setState(t, Tunnel.State.DOWN, null) }
