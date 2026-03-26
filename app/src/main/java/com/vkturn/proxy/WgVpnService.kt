@@ -9,13 +9,13 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import com.wireguard.android.backend.GoBackend
+import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 import kotlin.concurrent.thread
-import com.wireguard.android.backend.GoBackend
-import com.wireguard.android.backend.Tunnel
 
 class WgVpnService : VpnService() {
 
@@ -80,7 +80,7 @@ class WgVpnService : VpnService() {
         val reader = BufferedReader(InputStreamReader(binaryProcess?.inputStream))
 
         var dtlsReady = false
-        val logThread = thread(name = "CoreLogThread") {
+        thread(name = "CoreLogThread") {
             try {
                 var line: String?
                 while (isRunning) {
@@ -107,11 +107,16 @@ class WgVpnService : VpnService() {
         val privKey = prefs.getString("wg_priv", "") ?: ""
         val pubKey  = prefs.getString("wg_pub",  "") ?: ""
         val localIp = prefs.getString("wg_local", "10.0.0.2/32") ?: "10.0.0.2/32"
+        val peer    = prefs.getString("peer", "") ?: ""
+        val peerIp  = peer.substringBefore(":")
 
         if (privKey.isEmpty() || pubKey.isEmpty()) {
             addLog("ОШИБКА: wg_priv или wg_pub не заполнены!")
             return
         }
+
+        val allowedIps = buildAllowedIPs(peerIp)
+        addLog("AllowedIPs: $allowedIps")
 
         val configText = """
             [Interface]
@@ -123,14 +128,14 @@ class WgVpnService : VpnService() {
             [Peer]
             PublicKey = $pubKey
             Endpoint = 127.0.0.1:9000
-            AllowedIPs = 0.0.0.0/0
+            AllowedIPs = $allowedIps
             PersistentKeepalive = 25
         """.trimIndent()
 
-         try {
+        try {
             val config = Config.parse(configText.byteInputStream())
 
-            backend = GoBackend(this)
+            if (backend == null) backend = GoBackend(this)
 
             tunnel = object : Tunnel {
                 override fun getName() = "vk_tunnel"
@@ -140,13 +145,57 @@ class WgVpnService : VpnService() {
             }
 
             backend!!.setState(tunnel!!, Tunnel.State.UP, config)
-
             addLog("WireGuard запущен!")
 
         } catch (e: Exception) {
             addLog("Ошибка запуска VPN: ${e.message}")
         }
     }
+
+    private fun buildAllowedIPs(excludeIp: String): String {
+        if (excludeIp.isEmpty()) return "0.0.0.0/0"
+        return try {
+            val parts = excludeIp.split(".").map { it.toInt() }
+            calculateExcludedRoutes(parts[0], parts[1], parts[2], parts[3])
+        } catch (e: Exception) {
+            addLog("Ошибка разбора peer IP, используем 0.0.0.0/0")
+            "0.0.0.0/0"
+        }
+    }
+
+    private fun calculateExcludedRoutes(a: Int, b: Int, c: Int, d: Int): String {
+        val routes = mutableListOf<String>()
+        val ip32 = (a shl 24) or (b shl 16) or (c shl 8) or d
+        var base = 0
+        var prefixLen = 0
+
+        while (prefixLen < 32) {
+            val mask = if (prefixLen == 0) 0 else (-1 shl (32 - prefixLen))
+            val blockSize = 1 shl (32 - prefixLen)
+            val blockBase = ip32 and mask
+
+            if (blockBase == (base and mask)) {
+                val half = blockSize / 2
+                val leftBase = blockBase
+                val rightBase = blockBase or half
+
+                if (ip32 < (leftBase + half)) {
+                    routes.add("${intToIp(rightBase)}/${prefixLen + 1}")
+                    base = leftBase
+                } else {
+                    routes.add("${intToIp(leftBase)}/${prefixLen + 1}")
+                    base = rightBase
+                }
+                prefixLen++
+            } else {
+                break
+            }
+        }
+        return routes.joinToString(", ")
+    }
+
+    private fun intToIp(ip: Int): String =
+        "${(ip shr 24) and 0xFF}.${(ip shr 16) and 0xFF}.${(ip shr 8) and 0xFF}.${ip and 0xFF}"
 
     private fun startBinary(): Boolean {
         val binaryPath = "${applicationInfo.nativeLibraryDir}/libvkturn.so"
@@ -192,9 +241,7 @@ class WgVpnService : VpnService() {
         addLog("Остановка...")
 
         try {
-            tunnel?.let { t ->
-                backend?.setState(t, Tunnel.State.DOWN, null)
-            }
+            tunnel?.let { t -> backend?.setState(t, Tunnel.State.DOWN, null) }
         } catch (e: Exception) {
             addLog("Ошибка остановки WG: ${e.message}")
         }
