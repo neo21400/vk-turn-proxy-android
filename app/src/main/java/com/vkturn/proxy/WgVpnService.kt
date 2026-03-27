@@ -154,6 +154,27 @@ class WgVpnService : VpnService() {
         }
     }
 
+    private fun buildAllowedIPs(excludeIp: String): String {
+        val excludeCidrs = mutableListOf<Pair<String, Int>>()
+
+        if (excludeIp.isNotEmpty()) {
+            excludeCidrs.add(Pair(excludeIp, 32))
+        }
+
+        excludeCidrs.add(Pair("93.186.224.0", 20))
+        excludeCidrs.add(Pair("87.240.128.0", 18))
+        excludeCidrs.add(Pair("195.82.146.0", 23))
+        excludeCidrs.add(Pair("87.240.190.0", 24))
+        excludeCidrs.add(Pair("155.212.192.0", 19))
+
+        return try {
+            buildSplitTunnelRoutes(excludeCidrs)
+        } catch (e: Exception) {
+            addLog("Ошибка buildAllowedIPs: ${e.message}, fallback 0.0.0.0/0")
+            "0.0.0.0/0"
+        }
+    }
+
     private fun buildSplitTunnelRoutes(excludeCidrs: List<Pair<String, Int>>): String {
         data class Range(val start: Long, val end: Long)
     
