@@ -121,6 +121,9 @@ class WgVpnService : VpnService() {
         val allowedIps = buildAllowedIPs(peerIp)
         addLog("AllowedIPs: $allowedIps")
 
+        val peerIp = peer.substringBefore(":")
+        addLog("Peer IP: $peerIp — будет исключён из туннеля")
+
         val configText = """
             [Interface]
             PrivateKey = $privKey
@@ -161,11 +164,19 @@ class WgVpnService : VpnService() {
             excludeCidrs.add(Pair(excludeIp, 32))
         }
 
-        excludeCidrs.add(Pair("93.186.224.0", 20))
-        excludeCidrs.add(Pair("87.240.128.0", 18))
-        excludeCidrs.add(Pair("195.82.146.0", 23))
-        excludeCidrs.add(Pair("87.240.190.0", 24))
-        excludeCidrs.add(Pair("155.212.192.0", 19))
+        excludeCidrs.addAll(listOf(
+            Pair("87.240.128.0", 18),
+            Pair("87.240.190.0", 24),
+            Pair("93.186.224.0", 20),
+            Pair("95.213.0.0", 16),
+            Pair("185.22.228.0", 22),
+            Pair("185.166.112.0", 22),
+            Pair("195.82.146.0", 23),
+            Pair("195.82.148.0", 22),
+            Pair("155.212.192.0", 19),
+            Pair("62.122.232.0", 21),
+            Pair("217.20.144.0", 20),
+        ))
 
         return try {
             buildSplitTunnelRoutes(excludeCidrs)
