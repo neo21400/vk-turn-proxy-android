@@ -154,42 +154,58 @@ class WgVpnService : VpnService() {
         }
     }
 
-    private fun buildAllowedIPs(excludeIp: String): String {
-        if (excludeIp.isEmpty()) return "0.0.0.0/0"
-        return try {
-            excludeRouteFromDefault(excludeIp)
-        } catch (e: Exception) {
-            addLog("Ошибка разбора peer IP, используем 0.0.0.0/0")
-            "0.0.0.0/0"
+    private fun buildSplitTunnelRoutes(excludeCidrs: List<Pair<String, Int>>): String {
+        data class Range(val start: Long, val end: Long)
+    
+        var ranges = mutableListOf(Range(0L, 0xFFFFFFFFL))
+    
+        for ((ip, prefix) in excludeCidrs) {
+            val parts = ip.split(".").map { it.toLong() }
+            val base = (parts[0] shl 24) or (parts[1] shl 16) or (parts[2] shl 8) or parts[3]
+            val size = if (prefix >= 32) 1L else (1L shl (32 - prefix))
+            val exStart = base
+            val exEnd = base + size - 1
+        
+            val newRanges = mutableListOf<Range>()
+            for (r in ranges) {
+                when {
+                    exEnd < r.start || exStart > r.end -> newRanges.add(r)
+                    exStart <= r.start && exEnd >= r.end -> {}
+                    exStart > r.start && exEnd < r.end -> {
+                        newRanges.add(Range(r.start, exStart - 1))
+                        newRanges.add(Range(exEnd + 1, r.end))
+                    }
+                    exStart <= r.start -> newRanges.add(Range(exEnd + 1, r.end))
+                    else -> newRanges.add(Range(r.start, exStart - 1))
+                }
+            }
+            ranges = newRanges
         }
+    
+        val cidrs = mutableListOf<String>()
+        for (r in ranges) {
+            cidrs.addAll(rangeToCidrs(r.start, r.end))
+        }
+        return cidrs.joinToString(", ")
     }
 
-    private fun excludeRouteFromDefault(excludeIp: String): String {
-        val parts = excludeIp.split(".").map { it.toInt() }
-        val target = (parts[0] shl 24) or (parts[1] shl 16) or (parts[2] shl 8) or parts[3]
-        val t = target.toLong() and 0xFFFFFFFFL
+    private fun rangeToCidrs(start: Long, end: Long): List<String> {
         val result = mutableListOf<String>()
-        var prefix = 0
-        var base = 0L
-
-        while (prefix <= 32) {
-            val size = if (prefix == 32) 1L else (1L shl (32 - prefix))
-            if (base == t && prefix == 32) break
-            if (t >= base && t < base + size) {
-                val half = size / 2
-                if (t < base + half) {
-                    result.add("${longToIp(base + half)}/${prefix + 1}")
-                } else {
-                    result.add("${longToIp(base)}/${prefix + 1}")
-                    base += half
-                }
-                prefix++
-            } else {
-                break
+        var cur = start
+        while (cur <= end) {
+            var prefix = 32
+            while (prefix > 0) {
+                val size = 1L shl (32 - prefix + 1)
+                val aligned = cur % size == 0L
+                val fits = cur + size - 1 <= end
+                if (aligned && fits) prefix-- else break
             }
+            val size = if (prefix >= 32) 1L else (1L shl (32 - prefix))
+            result.add("${longToIp(cur)}/$prefix")
+            cur += size
+            if (cur > 0xFFFFFFFFL) break
         }
-
-        return if (result.isEmpty()) "0.0.0.0/0" else result.joinToString(", ")
+        return result
     }
 
     private fun longToIp(ip: Long): String =
