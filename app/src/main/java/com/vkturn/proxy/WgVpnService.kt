@@ -18,13 +18,14 @@ import java.io.InputStreamReader
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
-    class WgVpnService : VpnService() {
+class WgVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var binaryProcess: Process? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var backend: GoBackend? = null
     private var tunnel: Tunnel? = null
+    private val dtlsReady = AtomicBoolean(false)
 
     companion object {
         var isRunning = false
@@ -46,7 +47,7 @@ import kotlin.concurrent.thread
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (isRunning) return START_STICKY
-        dtlsReady = false
+        dtlsReady.set(false)
 
         startForegroundCompat()
 
@@ -77,8 +78,6 @@ import kotlin.concurrent.thread
         return START_STICKY
     }
 
-    private val dtlsReady = AtomicBoolean(false)
-    
     private fun waitForProxy(timeoutMs: Long): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         dtlsReady.set(false)
@@ -99,7 +98,7 @@ import kotlin.concurrent.thread
             }
         }
 
-        while (!dtlsReady.get() && System.currentTimeMillis() < deadline)
+        while (!dtlsReady.get() && System.currentTimeMillis() < deadline) {
             Thread.sleep(50)
         }
 
@@ -168,22 +167,14 @@ import kotlin.concurrent.thread
     private fun excludeRouteFromDefault(excludeIp: String): String {
         val parts = excludeIp.split(".").map { it.toInt() }
         val target = (parts[0] shl 24) or (parts[1] shl 16) or (parts[2] shl 8) or parts[3]
-    
-        val result = mutableListOf<String>()
-        var lo = 0L
-        val hi = 0xFFFFFFFFL
         val t = target.toLong() and 0xFFFFFFFFL
-    
+        val result = mutableListOf<String>()
         var prefix = 0
         var base = 0L
-    
+
         while (prefix <= 32) {
             val size = if (prefix == 32) 1L else (1L shl (32 - prefix))
-        
-            if (base == t && prefix == 32) {
-                break
-            }
-        
+            if (base == t && prefix == 32) break
             if (t >= base && t < base + size) {
                 val half = size / 2
                 if (t < base + half) {
@@ -197,45 +188,11 @@ import kotlin.concurrent.thread
                 break
             }
         }
-    
+
         return if (result.isEmpty()) "0.0.0.0/0" else result.joinToString(", ")
     }
 
     private fun longToIp(ip: Long): String =
-        "${(ip shr 24) and 0xFF}.${(ip shr 16) and 0xFF}.${(ip shr 8) and 0xFF}.${ip and 0xFF}"
-
-    private fun calculateExcludedRoutes(a: Int, b: Int, c: Int, d: Int): String {
-        val routes = mutableListOf<String>()
-        val ip32 = (a shl 24) or (b shl 16) or (c shl 8) or d
-        var base = 0
-        var prefixLen = 0
-
-        while (prefixLen < 32) {
-            val mask = if (prefixLen == 0) 0 else (-1 shl (32 - prefixLen))
-            val blockSize = 1 shl (32 - prefixLen)
-            val blockBase = ip32 and mask
-
-            if (blockBase == (base and mask)) {
-                val half = blockSize / 2
-                val leftBase = blockBase
-                val rightBase = blockBase or half
-
-                if (ip32 < (leftBase + half)) {
-                    routes.add("${intToIp(rightBase)}/${prefixLen + 1}")
-                    base = leftBase
-                } else {
-                    routes.add("${intToIp(leftBase)}/${prefixLen + 1}")
-                    base = rightBase
-                }
-                prefixLen++
-            } else {
-                break
-            }
-        }
-        return routes.joinToString(", ")
-    }
-
-    private fun intToIp(ip: Int): String =
         "${(ip shr 24) and 0xFF}.${(ip shr 16) and 0xFF}.${(ip shr 8) and 0xFF}.${ip and 0xFF}"
 
     private fun startBinary(): Boolean {
@@ -279,8 +236,8 @@ import kotlin.concurrent.thread
 
     override fun onDestroy() {
         isRunning = false
-        addLog("Остановка...")
         dtlsReady.set(false)
+        addLog("Остановка...")
 
         try {
             tunnel?.let { t -> backend?.setState(t, Tunnel.State.DOWN, null) }
