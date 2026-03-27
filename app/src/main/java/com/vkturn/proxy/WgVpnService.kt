@@ -112,6 +112,7 @@ class WgVpnService : VpnService() {
         val localIp = prefs.getString("wg_local", "10.0.0.2/32") ?: "10.0.0.2/32"
         val peer    = prefs.getString("peer", "") ?: ""
         val peerIp  = peer.substringBefore(":")
+        addLog("Peer IP: $peerIp — будет исключён из туннеля")
 
         if (privKey.isEmpty() || pubKey.isEmpty()) {
             addLog("ОШИБКА: wg_priv или wg_pub не заполнены!")
@@ -120,9 +121,6 @@ class WgVpnService : VpnService() {
 
         val allowedIps = buildAllowedIPs(peerIp)
         addLog("AllowedIPs: $allowedIps")
-
-        val peerIp = peer.substringBefore(":")
-        addLog("Peer IP: $peerIp — будет исключён из туннеля")
 
         val configText = """
             [Interface]
